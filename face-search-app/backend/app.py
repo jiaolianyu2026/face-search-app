@@ -1,9 +1,11 @@
 """
 Flask application for face recognition search API.
 Provides endpoints for image upload, face detection, search, and export.
+Includes WebSocket support for real-time progress updates.
 """
 
 from flask import Flask, request, jsonify, send_from_directory
+from flask_socketio import SocketIO, emit
 from werkzeug.utils import secure_filename
 import os
 import uuid
@@ -14,12 +16,18 @@ from config import (
     MAX_FILE_SIZE_BYTES,
     SUPPORTED_IMAGE_FORMATS,
     SUPPORTED_EXTENSIONS,
-    TEMP_UPLOAD_DIR
+    TEMP_UPLOAD_DIR,
+    DEFAULT_SIMILARITY_THRESHOLD,
+    FACE_DETECTION_MODEL,
+    ENABLE_PARALLEL_PROCESSING,
+    MAX_WORKER_THREADS
 )
 from models import UploadResult, DetectionResult, SearchTask, Progress, ExportResult
 from face_detection import FaceDetectionModule
 from face_search import FaceSearchModule
 from image_export import ImageExportModule
+from thumbnail_generator import ThumbnailGenerator
+from cache_module import CacheModule
 from error_handlers import (
     ValidationError,
     NotFoundError,
@@ -34,6 +42,9 @@ logger = get_logger('app')
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE_BYTES
 
+# Initialize SocketIO for real-time progress updates
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
 # Register error handlers
 register_error_handlers(app)
 
@@ -44,12 +55,22 @@ logger.info("Flask 应用启动")
 face_detector = FaceDetectionModule()
 face_searcher = FaceSearchModule()
 image_exporter = ImageExportModule()
+thumbnail_generator = ThumbnailGenerator()
+cache_module = CacheModule()
 
 # Store active search tasks in memory
 search_tasks: Dict[str, SearchTask] = {}
 
 # Store detection results cache (imageId -> DetectionResult)
 detection_cache: Dict[str, DetectionResult] = {}
+
+# Store runtime configuration (can be modified via API)
+runtime_config = {
+    'similarity_threshold': DEFAULT_SIMILARITY_THRESHOLD,
+    'face_detection_model': FACE_DETECTION_MODEL,
+    'enable_parallel_processing': ENABLE_PARALLEL_PROCESSING,
+    'max_worker_threads': MAX_WORKER_THREADS
+}
 
 
 def validate_file_format(filename: str, content_type: str) -> Tuple[bool, str]:
@@ -285,7 +306,8 @@ def search_faces():
     image_id = data.get('imageId')
     face_id = data.get('faceId')
     search_folder = data.get('searchFolder')
-    threshold = data.get('threshold', 0.6)
+    # Use runtime config threshold if not specified
+    threshold = data.get('threshold', runtime_config['similarity_threshold'])
     
     if not image_id:
         raise ValidationError("需要提供 imageId", field="imageId")
@@ -389,9 +411,31 @@ def search_faces():
             search_task.status = 'running'
             logger.info(f"开始执行搜索任务: {search_task.taskId}")
             
-            # Define progress callback
+            # Emit initial status via WebSocket
+            socketio.emit('search_status', {
+                'taskId': search_task.taskId,
+                'status': 'running',
+                'progress': {
+                    'current': 0,
+                    'total': 0,
+                    'percentage': 0,
+                    'currentFile': None
+                }
+            })
+            
+            # Define progress callback with WebSocket support
             def progress_callback(progress: Progress):
                 search_task.progress = progress
+                # Emit progress update via WebSocket
+                socketio.emit('search_progress', {
+                    'taskId': search_task.taskId,
+                    'progress': {
+                        'current': progress.current,
+                        'total': progress.total,
+                        'percentage': progress.percentage,
+                        'currentFile': progress.currentFile
+                    }
+                })
             
             # Execute search
             search_result = face_searcher.searchFaces(
@@ -413,16 +457,37 @@ def search_faces():
                 search_task.status = 'cancelled'
                 search_task.cancelled = True
                 logger.info(f"搜索任务已取消: {search_task.taskId}, 已处理 {search_result.totalProcessed} 个文件")
+                
+                # Emit cancellation via WebSocket
+                socketio.emit('search_cancelled', {
+                    'taskId': search_task.taskId,
+                    'status': 'cancelled',
+                    'totalProcessed': search_result.totalProcessed,
+                    'matchesFound': len(search_result.matches)
+                })
             else:
                 search_task.status = 'completed'
                 logger.info(f"搜索任务完成: {search_task.taskId}, 找到 {len(search_result.matches)} 个匹配结果")
+                
+                # Emit completion via WebSocket
+                socketio.emit('search_completed', {
+                    'taskId': search_task.taskId,
+                    'status': 'completed',
+                    'totalProcessed': search_result.totalProcessed,
+                    'matchesFound': len(search_result.matches)
+                })
                 
         except Exception as e:
             # Handle errors during search
             logger.error(f"搜索任务执行失败: {search_task.taskId}, 错误: {str(e)}", exc_info=True)
             search_task.status = 'completed'
             search_task.progress = Progress(current=0, total=0)
-            # Store error in results (empty list indicates error)
+            
+            # Emit error via WebSocket
+            socketio.emit('search_error', {
+                'taskId': search_task.taskId,
+                'error': str(e)
+            })
     
     # Start search in background thread
     search_thread = threading.Thread(target=run_search, daemon=True)
@@ -660,8 +725,222 @@ def export_images():
             original_error=e
         )
 
+
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    """
+    Get current runtime configuration.
+    
+    Response:
+        - similarity_threshold: Current similarity threshold (0-1)
+        - face_detection_model: Current face detection model ('hog' or 'cnn')
+        - enable_parallel_processing: Whether parallel processing is enabled
+        - max_worker_threads: Number of worker threads for parallel processing
+        
+    Returns:
+        - 200: Configuration retrieved successfully
+        
+    Requirements: 4.5 (扩展)
+    """
+    return jsonify(runtime_config), 200
+
+
+@app.route('/api/config', methods=['PUT'])
+def update_config():
+    """
+    Update runtime configuration.
+    
+    Request (JSON body):
+        - similarity_threshold: New similarity threshold (0-1, optional)
+        - face_detection_model: New face detection model ('hog' or 'cnn', optional)
+        - enable_parallel_processing: Enable/disable parallel processing (optional)
+        - max_worker_threads: Number of worker threads (1-16, optional)
+        
+    Response:
+        - Updated configuration
+        - message: Confirmation message
+        
+    Returns:
+        - 200: Configuration updated successfully
+        - 400: Invalid configuration values
+        
+    Requirements: 4.5 (扩展)
+    """
+    data = request.get_json()
+    if not data:
+        raise ValidationError("需要提供请求体")
+    
+    updated_fields = []
+    
+    # Update similarity threshold
+    if 'similarity_threshold' in data:
+        threshold = data['similarity_threshold']
+        try:
+            threshold = float(threshold)
+            if not 0 <= threshold <= 1:
+                raise ValidationError("similarity_threshold 必须在 0 到 1 之间", field="similarity_threshold")
+            runtime_config['similarity_threshold'] = threshold
+            updated_fields.append('similarity_threshold')
+            logger.info(f"更新相似度阈值: {threshold}")
+        except (ValueError, TypeError):
+            raise ValidationError("similarity_threshold 必须是数字", field="similarity_threshold")
+    
+    # Update face detection model
+    if 'face_detection_model' in data:
+        model = data['face_detection_model']
+        if model not in ['hog', 'cnn']:
+            raise ValidationError("face_detection_model 必须是 'hog' 或 'cnn'", field="face_detection_model")
+        runtime_config['face_detection_model'] = model
+        # Update detector model
+        face_detector.model = model
+        updated_fields.append('face_detection_model')
+        logger.info(f"更新人脸检测模型: {model}")
+    
+    # Update parallel processing setting
+    if 'enable_parallel_processing' in data:
+        enable = data['enable_parallel_processing']
+        if not isinstance(enable, bool):
+            raise ValidationError("enable_parallel_processing 必须是布尔值", field="enable_parallel_processing")
+        runtime_config['enable_parallel_processing'] = enable
+        # Update searcher setting
+        face_searcher.enable_parallel = enable
+        updated_fields.append('enable_parallel_processing')
+        logger.info(f"更新并行处理设置: {enable}")
+    
+    # Update max worker threads
+    if 'max_worker_threads' in data:
+        threads = data['max_worker_threads']
+        try:
+            threads = int(threads)
+            if not 1 <= threads <= 16:
+                raise ValidationError("max_worker_threads 必须在 1 到 16 之间", field="max_worker_threads")
+            runtime_config['max_worker_threads'] = threads
+            # Update searcher setting
+            face_searcher.max_workers = threads
+            updated_fields.append('max_worker_threads')
+            logger.info(f"更新工作线程数: {threads}")
+        except (ValueError, TypeError):
+            raise ValidationError("max_worker_threads 必须是整数", field="max_worker_threads")
+    
+    if not updated_fields:
+        raise ValidationError("未提供任何配置更新")
+    
+    return jsonify({
+        "config": runtime_config,
+        "message": f"配置已更新: {', '.join(updated_fields)}"
+    }), 200
+
+
+@app.route('/api/cache/clear', methods=['POST'])
+def clear_cache():
+    """
+    Clear the face feature cache.
+    
+    Response:
+        - cleared_entries: Number of cache entries cleared
+        - message: Confirmation message
+        
+    Returns:
+        - 200: Cache cleared successfully
+        
+    Requirements: 4.5 (扩展)
+    """
+    try:
+        cleared_count = cache_module.clearCache()
+        logger.info(f"清除缓存: {cleared_count} 个条目")
+        
+        return jsonify({
+            "cleared_entries": cleared_count,
+            "message": f"成功清除 {cleared_count} 个缓存条目"
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"清除缓存失败: {str(e)}", exc_info=True)
+        raise ServiceError(
+            f"清除缓存失败: {str(e)}",
+            service_name="cache",
+            original_error=e
+        )
+
+
+@app.route('/api/thumbnails/clear', methods=['POST'])
+def clear_thumbnails():
+    """
+    Clear all generated thumbnails.
+    
+    Response:
+        - cleared_thumbnails: Number of thumbnails cleared
+        - message: Confirmation message
+        
+    Returns:
+        - 200: Thumbnails cleared successfully
+    """
+    try:
+        cleared_count = thumbnail_generator.clearThumbnails()
+        logger.info(f"清除缩略图: {cleared_count} 个文件")
+        
+        return jsonify({
+            "cleared_thumbnails": cleared_count,
+            "message": f"成功清除 {cleared_count} 个缩略图"
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"清除缩略图失败: {str(e)}", exc_info=True)
+        raise ServiceError(
+            f"清除缩略图失败: {str(e)}",
+            service_name="thumbnail",
+            original_error=e
+        )
+
+
+# WebSocket event handlers
+@socketio.on('connect')
+def handle_connect():
+    """Handle client connection to WebSocket."""
+    logger.info(f"WebSocket 客户端已连接")
+    emit('connected', {'message': '已连接到服务器'})
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle client disconnection from WebSocket."""
+    logger.info(f"WebSocket 客户端已断开连接")
+
+
+@socketio.on('subscribe_task')
+def handle_subscribe_task(data):
+    """
+    Subscribe to updates for a specific task.
+    
+    Args:
+        data: Dictionary containing 'taskId'
+    """
+    task_id = data.get('taskId')
+    if not task_id:
+        emit('error', {'message': '需要提供 taskId'})
+        return
+    
+    if task_id not in search_tasks:
+        emit('error', {'message': f'未找到任务: {task_id}'})
+        return
+    
+    task = search_tasks[task_id]
+    logger.info(f"客户端订阅任务: {task_id}")
+    
+    # Send current task status
+    emit('task_status', {
+        'taskId': task.taskId,
+        'status': task.status,
+        'progress': {
+            'current': task.progress.current,
+            'total': task.progress.total,
+            'percentage': task.progress.percentage,
+            'currentFile': task.progress.currentFile
+        }
+    })
+
+
 if __name__ == '__main__':
-    logger.info("启动 Flask 开发服务器: http://0.0.0.0:5000")
-    # 使用生产模式，避免 debug 模式的问题
-    # 禁用自动重载和调试器
-    app.run(debug=False, host='0.0.0.0', port=5000, threaded=True)
+    logger.info("启动 Flask 开发服务器（带 WebSocket 支持）: http://0.0.0.0:5000")
+    # 使用 socketio.run 而不是 app.run 以支持 WebSocket
+    socketio.run(app, debug=False, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)

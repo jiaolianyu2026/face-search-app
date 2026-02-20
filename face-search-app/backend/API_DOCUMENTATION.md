@@ -592,3 +592,161 @@ if status_data['status'] == 'completed':
             for error in export_result['errors']:
                 print(f"    - {error['path']}: {error['error']}")
 ```
+
+
+---
+
+## Configuration Management API
+
+### GET /api/config
+
+Get current runtime configuration settings.
+
+**Request:**
+- Method: `GET`
+
+**Response (Success - 200):**
+```json
+{
+  "similarity_threshold": 0.6,
+  "face_detection_model": "hog",
+  "enable_parallel_processing": true,
+  "max_worker_threads": 4
+}
+```
+
+**Example using curl:**
+```bash
+curl http://localhost:5000/api/config
+```
+
+---
+
+### PUT /api/config
+
+Update runtime configuration settings.
+
+**Request:**
+- Method: `PUT`
+- Content-Type: `application/json`
+- Body (all fields optional):
+```json
+{
+  "similarity_threshold": 0.7,
+  "face_detection_model": "cnn",
+  "enable_parallel_processing": false,
+  "max_worker_threads": 8
+}
+```
+
+**Field Constraints:**
+- `similarity_threshold`: Float between 0 and 1
+- `face_detection_model`: Either "hog" (faster) or "cnn" (more accurate)
+- `enable_parallel_processing`: Boolean
+- `max_worker_threads`: Integer between 1 and 16
+
+**Response (Success - 200):**
+```json
+{
+  "config": {
+    "similarity_threshold": 0.7,
+    "face_detection_model": "cnn",
+    "enable_parallel_processing": false,
+    "max_worker_threads": 8
+  },
+  "message": "配置已更新: similarity_threshold, face_detection_model, enable_parallel_processing, max_worker_threads"
+}
+```
+
+**Response (Error - 400):**
+```json
+{
+  "error": "similarity_threshold 必须在 0 到 1 之间",
+  "field": "similarity_threshold"
+}
+```
+
+**Example using curl:**
+```bash
+curl -X PUT http://localhost:5000/api/config \
+  -H "Content-Type: application/json" \
+  -d '{"similarity_threshold": 0.7, "face_detection_model": "cnn"}'
+```
+
+---
+
+## Cache Management API
+
+### POST /api/cache/clear
+
+Clear all cached face features from the database.
+
+**Request:**
+- Method: `POST`
+
+**Response (Success - 200):**
+```json
+{
+  "cleared_entries": 42,
+  "message": "成功清除 42 个缓存条目"
+}
+```
+
+**Example using curl:**
+```bash
+curl -X POST http://localhost:5000/api/cache/clear
+```
+
+---
+
+### POST /api/thumbnails/clear
+
+Clear all generated thumbnail images.
+
+**Request:**
+- Method: `POST`
+
+**Response (Success - 200):**
+```json
+{
+  "cleared_thumbnails": 15,
+  "message": "成功清除 15 个缩略图"
+}
+```
+
+**Example using curl:**
+```bash
+curl -X POST http://localhost:5000/api/thumbnails/clear
+```
+
+---
+
+## Performance Features
+
+### Parallel Processing
+
+The search module automatically uses parallel processing for folders with more than 10 images when `enable_parallel_processing` is enabled. This significantly improves search speed on multi-core systems.
+
+**Configuration:**
+- Enable/disable via `PUT /api/config` with `enable_parallel_processing`
+- Adjust thread count via `max_worker_threads` (1-16)
+
+### Batch Processing
+
+For large folders (>100 images), the system processes images in batches to avoid memory issues. Batch size is configured in `config.py` as `BATCH_SIZE`.
+
+### Thumbnail Generation
+
+Thumbnails are automatically generated for faster preview loading. Thumbnails are cached and reused if the original image hasn't changed.
+
+**Default thumbnail size:** 200x200 pixels (maintains aspect ratio)
+
+### Face Detection Models
+
+Two models are available:
+- **HOG (Histogram of Oriented Gradients)**: Faster, suitable for most use cases
+- **CNN (Convolutional Neural Network)**: More accurate, requires more processing power
+
+Switch models via `PUT /api/config` with `face_detection_model`.
+
+---
