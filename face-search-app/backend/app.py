@@ -709,17 +709,23 @@ def _handle_multi_face_search(data: dict, search_folder: str, threshold: float):
             # 定义进度回调
             def progress_callback(progress: Progress):
                 try:
+                    logger.debug(f"[APP进度回调] 收到进度更新: {progress.current}/{progress.total} ({progress.percentage:.1f}%), 文件: {progress.currentFile}")
                     search_task.progress = progress
-                    # 发送进度更新
-                    socketio.emit('search_progress', {
-                        'taskId': search_task.taskId,
-                        'progress': {
-                            'current': progress.current,
-                            'total': progress.total,
-                            'percentage': progress.percentage,
-                            'currentFile': progress.currentFile
-                        }
-                    })
+                    # 发送进度更新 - 使用线程安全的方式
+                    try:
+                        socketio.emit('search_progress', {
+                            'taskId': search_task.taskId,
+                            'progress': {
+                                'current': progress.current,
+                                'total': progress.total,
+                                'percentage': progress.percentage,
+                                'currentFile': progress.currentFile
+                            }
+                        }, namespace='/')
+                        logger.debug(f"[APP进度回调] WebSocket消息已发送")
+                    except Exception as ws_error:
+                        # WebSocket 发送失败不应该影响搜索继续进行
+                        logger.warning(f"[APP进度回调] WebSocket发送失败: {str(ws_error)}")
                 except Exception as e:
                     logger.error(f"进度回调发生错误: {str(e)}", exc_info=True)
             
@@ -1369,6 +1375,7 @@ def save_face_to_library():
             'id': library_face.id,
             'name': library_face.name,
             'thumbnail_path': library_face.thumbnail_path,
+            'thumbnailUrl': f"/api/library/faces/{library_face.id}/thumbnail",
             'created_at': library_face.created_at,
             'source_image_id': library_face.source_image_id
         }), 200
@@ -1418,6 +1425,10 @@ def get_all_library_faces():
             sort_by=sort_by,
             search_name=search_name
         )
+        
+        # 为每个人像添加 thumbnailUrl
+        for face in faces:
+            face['thumbnailUrl'] = f"/api/library/faces/{face['id']}/thumbnail"
         
         logger.info(f"查询到 {len(faces)} 个库人像")
         

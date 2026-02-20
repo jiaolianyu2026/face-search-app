@@ -6,17 +6,15 @@
 }
 
 .preview-image {
+  /* 隐藏原图，只用于加载 */
+  display: none;
+}
+
+.face-canvas {
   max-width: 100%;
   height: auto;
   display: block;
   border-radius: 8px;
-}
-
-.face-canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
-  pointer-events: none;
 }
 
 .face-list {

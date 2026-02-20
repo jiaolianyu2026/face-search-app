@@ -64,11 +64,11 @@ function FaceDetection({ imageId, previewUrl, onFaceSelect, onBack, onFacesDetec
       const ctx = canvas.getContext('2d')
 
       // 设置 canvas 尺寸与图片一致
-      canvas.width = image.width
-      canvas.height = image.height
+      canvas.width = image.naturalWidth
+      canvas.height = image.naturalHeight
 
-      // 清空 canvas
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      // 先绘制原图
+      ctx.drawImage(image, 0, 0)
 
       // 绘制所有人脸边界框
       faces.forEach((face, index) => {

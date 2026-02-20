@@ -80,8 +80,11 @@ class ThumbnailGenerator:
                     quality=self.THUMBNAIL_QUALITY
                 )
                 
-                logger.info(f"缩略图已生成: {output_path}")
-                return output_path
+                # 将路径转换为正斜杠格式（跨平台兼容）
+                normalized_path = output_path.replace('\\', '/')
+                
+                logger.info(f"缩略图已生成: {normalized_path}")
+                return normalized_path
                 
         except FileNotFoundError:
             logger.error(f"图片文件不存在: {image_path}")
@@ -161,8 +164,11 @@ class ThumbnailGenerator:
                 quality=self.THUMBNAIL_QUALITY
             )
             
-            logger.info(f"占位图已创建: {output_path}")
-            return output_path
+            # 将路径转换为正斜杠格式（跨平台兼容）
+            normalized_path = output_path.replace('\\', '/')
+            
+            logger.info(f"占位图已创建: {normalized_path}")
+            return normalized_path
             
         except Exception as e:
             logger.error(f"创建占位图失败: {str(e)}")
