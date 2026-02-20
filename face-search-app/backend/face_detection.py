@@ -1,6 +1,7 @@
 """
 Face Detection Module for detecting faces and extracting features.
 Uses face_recognition library for face detection and feature extraction.
+Supports multiple detection models (HOG for speed, CNN for accuracy).
 """
 
 import face_recognition
@@ -10,6 +11,7 @@ from typing import List, Tuple
 from PIL import Image
 from models import Face, DetectionResult
 from logger import get_logger
+from config import FACE_DETECTION_MODEL
 
 # 初始化日志记录器
 logger = get_logger('face_detection')
@@ -24,9 +26,15 @@ class FaceDetectionModule:
     - Extract 128-dimensional feature vectors for each face
     """
     
-    def __init__(self):
-        """Initialize the FaceDetectionModule."""
-        pass
+    def __init__(self, model: str = FACE_DETECTION_MODEL):
+        """
+        Initialize the FaceDetectionModule.
+        
+        Args:
+            model: Detection model to use ('hog' for speed, 'cnn' for accuracy)
+        """
+        self.model = model
+        logger.info(f"人脸检测模块初始化，模型: {model}")
     
     def detectFaces(self, image_path: str) -> DetectionResult:
         """
@@ -60,10 +68,11 @@ class FaceDetectionModule:
             image = face_recognition.load_image_file(image_path)
             logger.debug(f"图片加载成功，尺寸: {image.shape}")
             
-            # Detect face locations using HOG-based detector
+            # Detect face locations using specified model
+            # 'hog' is faster but less accurate, 'cnn' is more accurate but slower
             # Returns list of tuples: (top, right, bottom, left)
-            logger.debug("开始检测人脸位置...")
-            face_locations = face_recognition.face_locations(image)
+            logger.debug(f"开始检测人脸位置（模型: {self.model}）...")
+            face_locations = face_recognition.face_locations(image, model=self.model)
             logger.debug(f"人脸位置检测完成，找到 {len(face_locations)} 个人脸")
             
             # Check if any faces were detected

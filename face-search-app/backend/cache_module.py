@@ -238,13 +238,23 @@ class CacheModule:
         conn.commit()
         conn.close()
     
-    def clear_cache(self) -> None:
-        """Clear all cached entries."""
+    def clearCache(self) -> int:
+        """
+        Clear all cached entries.
+        
+        Returns:
+            Number of entries cleared
+        """
+        # Get count before clearing
+        count = self.get_cache_size()
+        
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute('DELETE FROM face_cache')
         conn.commit()
         conn.close()
+        
+        return count
     
     def get_cache_size(self) -> int:
         """
