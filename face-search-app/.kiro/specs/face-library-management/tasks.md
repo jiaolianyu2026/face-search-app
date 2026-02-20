@@ -120,7 +120,7 @@
     - _需求: 6.7, 6.8_
 
 - [ ] 6. 实现多人像搜索模块
-  - [ ] 6.1 创建 `backend/multi_search.py` 模块
+  - [x] 6.1 创建 `backend/multi_search.py` 模块
     - 实现 `MultiSearchModule` 类
     - 实现 `searchMultipleFaces` 方法
       - 对每个特征向量调用 FaceSearchModule.searchFaces
