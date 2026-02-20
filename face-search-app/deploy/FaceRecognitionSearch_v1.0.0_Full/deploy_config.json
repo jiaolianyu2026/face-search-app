@@ -1,0 +1,88 @@
+{
+  "app": {
+    "name": "人脸识别搜索应用",
+    "version": "1.0.0",
+    "description": "基于深度学习的人脸识别和搜索应用",
+    "author": "Face Recognition Team",
+    "license": "MIT",
+    "releaseDate": "2026-02-14"
+  },
+  "system": {
+    "requirements": {
+      "os": "Windows 10/11 (64-bit)",
+      "python": "3.10+",
+      "nodejs": "16+",
+      "ram": "8GB (推荐)",
+      "disk": "2GB"
+    }
+  },
+  "backend": {
+    "host": "0.0.0.0",
+    "port": 5000,
+    "debug": false,
+    "environment": "production",
+    "virtualenv": "backend/venv",
+    "dependencies": "backend/requirements.txt",
+    "mainFile": "backend/app.py"
+  },
+  "frontend": {
+    "host": "localhost",
+    "port": 3000,
+    "buildDir": "frontend/dist",
+    "dependencies": "frontend/package.json",
+    "buildCommand": "npm run build",
+    "devCommand": "npm run dev"
+  },
+  "paths": {
+    "uploads": "backend/temp_uploads",
+    "cache": "backend/cache",
+    "logs": "backend/app.log",
+    "scripts": "scripts"
+  },
+  "features": {
+    "faceDetection": {
+      "enabled": true,
+      "model": "dlib HOG + CNN",
+      "featureDim": 128
+    },
+    "faceSearch": {
+      "enabled": true,
+      "defaultThreshold": 0.6,
+      "maxResults": 1000
+    },
+    "imageExport": {
+      "enabled": true,
+      "autoCreateFolder": true
+    },
+    "cache": {
+      "enabled": true,
+      "type": "sqlite",
+      "location": "backend/cache/face_cache.db"
+    }
+  },
+  "performance": {
+    "maxFileSize": 10,
+    "batchSize": 100,
+    "threadPoolSize": 4,
+    "detectionTimeout": 2,
+    "searchTimeout": 300
+  },
+  "security": {
+    "allowedFormats": ["jpg", "jpeg", "png", "webp"],
+    "corsOrigins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+    "maxUploadSize": "10MB"
+  },
+  "deployment": {
+    "type": "standalone",
+    "installScript": "scripts/install.bat",
+    "startScript": "scripts/start.bat",
+    "stopScript": "scripts/stop.bat",
+    "buildScript": "scripts/build_frontend.bat"
+  },
+  "documentation": {
+    "installation": "INSTALLATION.md",
+    "usage": "USAGE_GUIDE.md",
+    "readme": "README.md",
+    "api": "backend/API_DOCUMENTATION.md"
+  }
+}

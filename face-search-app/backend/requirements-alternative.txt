@@ -1,0 +1,16 @@
+# Alternative requirements using pre-built packages
+# Use this if you have trouble building dlib from source
+
+# Try dlib-binary (unofficial pre-built package)
+# Note: May not be as up-to-date as official dlib
+dlib-binary>=19.24.0
+
+# Or use face_recognition without explicit dlib dependency
+# face_recognition will try to install dlib automatically
+face_recognition>=1.3.0
+
+opencv-python>=4.8.0
+numpy>=1.26.0
+Pillow>=10.0.0
+Flask>=3.0.0
+Flask-CORS>=4.0.0

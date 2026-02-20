@@ -1,0 +1,96 @@
+.image-container {
+  position: relative;
+  margin: 20px 0;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.preview-image {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 8px;
+}
+
+.face-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.face-list {
+  margin: 20px 0;
+}
+
+.face-list-title {
+  font-weight: bold;
+  margin-bottom: 12px;
+  color: #333;
+}
+
+.face-items {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.face-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 2px solid #d9d9d9;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: white;
+}
+
+.face-item:hover {
+  border-color: #1890ff;
+  background: #f0f8ff;
+}
+
+.face-item.selected {
+  border-color: #52c41a;
+  background: #f6ffed;
+}
+
+.face-number {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #1890ff;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+.face-item.selected .face-number {
+  background: #52c41a;
+}
+
+.face-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.face-size {
+  font-size: 12px;
+  color: #999;
+}
+
+.button-group {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+  justify-content: flex-end;
+}
+
+.button-group .button {
+  min-width: 120px;
+}

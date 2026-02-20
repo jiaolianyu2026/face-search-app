@@ -1,0 +1,17 @@
+应用名称: FaceRecognitionSearch
+版本号: 1.0.0
+构建日期: 周六 22602
+构建时间: 22:40:49.84
+构建类型: 完整安装包（包含所有依赖）
+
+系统要求:
+- Windows 10/11 (64位)
+- 无需安装 Python 和 Node.js
+- 8GB RAM (推荐)
+- 2GB 磁盘空间
+
+快速开始:
+1. 解压到目标目录
+3. 访问 http://localhost:3000
+
+详细说明请查看 INSTALLATION.md

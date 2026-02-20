@@ -1,0 +1,13 @@
+# Core dependencies for face recognition search application
+# Using dlib-bin (precompiled) instead of dlib for easier installation
+dlib-bin>=19.7.0
+face_recognition>=1.3.0
+opencv-python>=4.8.0
+numpy>=1.26.0
+Pillow>=10.0.0
+Flask>=3.0.0
+Flask-CORS>=4.0.0
+
+# Testing dependencies
+pytest>=9.0.0
+hypothesis>=6.0.0
