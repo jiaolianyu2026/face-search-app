@@ -6,7 +6,7 @@
 
 ## 任务
 
-- [ ] 1. 创建数据模型和数据库架构
+- [x] 1. 创建数据模型和数据库架构
   - 在 `backend/models.py` 中添加 `LibraryFace`、`FaceSelection` 和 `MultiSearchResult` 数据类
   - 实现数据验证逻辑（名称长度、特征向量维度、UUID 格式）
   - _需求: 7.1, 7.2, 7.3, 7.4, 7.5, 7.7_
@@ -18,7 +18,7 @@
   - _需求: 7.3, 7.4, 7.5_
 
 - [ ] 2. 实现缩略图生成模块
-  - [ ] 2.1 创建 `backend/thumbnail_generator.py` 模块
+  - [x] 2.1 创建 `backend/thumbnail_generator.py` 模块
     - 实现 `ThumbnailGenerator` 类
     - 实现 `generateThumbnail` 方法：裁剪人像区域、添加边距、缩放到固定尺寸
     - 使用 Pillow 进行图像处理
@@ -40,14 +40,14 @@
     - _需求: 5.1, 5.2, 5.3, 5.6, 5.7_
 
 - [ ] 3. 实现人像库模块
-  - [ ] 3.1 创建 `backend/face_library.py` 模块
+  - [x] 3.1 创建 `backend/face_library.py` 模块
     - 实现 `FaceLibraryModule` 类
     - 初始化 SQLite 数据库连接（`cache/face_library.db`）
     - 创建 `library_faces` 表结构（id, name, feature_vector, thumbnail_path, created_at, source_image_id）
     - 创建索引（name, created_at）
     - _需求: 2.7, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
 
-  - [ ] 3.2 实现 CRUD 操作方法
+  - [x] 3.2 实现 CRUD 操作方法
     - `saveFace`: 保存人像到数据库，序列化特征向量为 BLOB
     - `getFace`: 根据 ID 查询单个人像
     - `getAllFaces`: 查询所有人像，支持排序和名称搜索

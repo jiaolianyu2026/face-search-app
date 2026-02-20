@@ -227,3 +227,178 @@ class CacheEntry:
     features: List[Face]
     timestamp: float
     fileHash: str
+
+
+@dataclass
+class LibraryFace:
+    """
+    表示保存在人像库中的人像。
+    
+    Attributes:
+        id: 唯一标识符（UUID格式）
+        name: 人像名称（1-100字符）
+        feature_vector: 128维特征向量
+        thumbnail_path: 缩略图文件路径
+        created_at: 创建时间戳（ISO 8601格式）
+        source_image_id: 源图片ID（可选）
+    """
+    id: str
+    name: str
+    feature_vector: List[float]
+    thumbnail_path: str
+    created_at: str
+    source_image_id: Optional[str] = None
+    
+    def __post_init__(self):
+        """验证库人像数据。"""
+        # 验证 UUID 格式
+        try:
+            uuid.UUID(self.id)
+        except ValueError:
+            raise ValueError(f"ID must be a valid UUID, got {self.id}")
+        
+        # 验证名称长度
+        if not self.name or len(self.name) == 0:
+            raise ValueError("Name cannot be empty")
+        if len(self.name) > 100:
+            raise ValueError(f"Name must not exceed 100 characters, got {len(self.name)}")
+        
+        # 验证特征向量维度
+        if len(self.feature_vector) != 128:
+            raise ValueError(f"Feature vector must be 128-dimensional, got {len(self.feature_vector)}")
+        
+        # 验证 ISO 8601 时间戳格式
+        try:
+            datetime.fromisoformat(self.created_at.replace('Z', '+00:00'))
+        except (ValueError, AttributeError):
+            raise ValueError(f"created_at must be in ISO 8601 format, got {self.created_at}")
+    
+    @staticmethod
+    def create(name: str, feature_vector: List[float], thumbnail_path: str, 
+               source_image_id: Optional[str] = None) -> 'LibraryFace':
+        """
+        工厂方法：创建新的 LibraryFace 实例。
+        
+        Args:
+            name: 人像名称
+            feature_vector: 128维特征向量
+            thumbnail_path: 缩略图路径
+            source_image_id: 源图片ID（可选）
+            
+        Returns:
+            新的 LibraryFace 实例
+        """
+        return LibraryFace(
+            id=str(uuid.uuid4()),
+            name=name,
+            feature_vector=feature_vector,
+            thumbnail_path=thumbnail_path,
+            created_at=datetime.now().isoformat(),
+            source_image_id=source_image_id
+        )
+
+
+@dataclass
+class FaceSelection:
+    """
+    表示用户选择的人像集合。
+    
+    Attributes:
+        uploaded_faces: 从上传图片中选择的人像列表
+        library_faces: 从人像库中选择的人像ID列表
+    """
+    uploaded_faces: List[dict] = field(default_factory=list)  # [{imageId: str, faceId: str}]
+    library_faces: List[str] = field(default_factory=list)  # [libraryFaceId: str]
+    
+    def get_all_face_ids(self) -> List[str]:
+        """
+        获取所有选中的人像ID。
+        
+        Returns:
+            包含所有人像ID的列表
+        """
+        uploaded_ids = [f"{face['imageId']}:{face['faceId']}" for face in self.uploaded_faces]
+        return uploaded_ids + self.library_faces
+    
+    def is_empty(self) -> bool:
+        """
+        检查是否没有选择任何人像。
+        
+        Returns:
+            如果没有选择任何人像返回 True
+        """
+        return len(self.uploaded_faces) == 0 and len(self.library_faces) == 0
+    
+    def count(self) -> int:
+        """
+        获取选中人像的总数。
+        
+        Returns:
+            选中人像的数量
+        """
+        return len(self.uploaded_faces) + len(self.library_faces)
+
+
+@dataclass
+class MultiSearchResult:
+    """
+    多人像搜索的结果。
+    
+    Attributes:
+        matches: 匹配结果列表，每个匹配包含源人像ID
+        total_processed: 处理的图片总数
+        source_face_map: 源人像ID到匹配结果的映射
+        cancelled: 搜索是否被取消
+    """
+    matches: List[dict] = field(default_factory=list)  # [{...Match, sourceFaceId: str}]
+    total_processed: int = 0
+    source_face_map: dict = field(default_factory=dict)  # {sourceFaceId: [Match]}
+    cancelled: bool = False
+    
+    def add_match(self, match: Match, source_face_id: str):
+        """
+        添加一个匹配结果。
+        
+        Args:
+            match: 匹配对象
+            source_face_id: 源人像ID
+        """
+        match_dict = {
+            'imagePath': match.imagePath,
+            'similarity': match.similarity,
+            'faceLocation': match.faceLocation,
+            'thumbnailUrl': match.thumbnailUrl,
+            'sourceFaceId': source_face_id
+        }
+        self.matches.append(match_dict)
+        
+        # 更新源人像映射
+        if source_face_id not in self.source_face_map:
+            self.source_face_map[source_face_id] = []
+        self.source_face_map[source_face_id].append(match)
+    
+    def merge_duplicates(self):
+        """
+        合并重复的图片路径，保留最高相似度分数。
+        """
+        # 按图片路径分组
+        path_groups = {}
+        for match in self.matches:
+            path = match['imagePath']
+            if path not in path_groups:
+                path_groups[path] = []
+            path_groups[path].append(match)
+        
+        # 对每个路径保留最高相似度的匹配
+        merged_matches = []
+        for path, matches in path_groups.items():
+            best_match = max(matches, key=lambda m: m['similarity'])
+            merged_matches.append(best_match)
+        
+        self.matches = merged_matches
+    
+    def sort_by_similarity(self):
+        """
+        按相似度降序排序匹配结果。
+        """
+        self.matches.sort(key=lambda m: m['similarity'], reverse=True)
