@@ -1,0 +1,85 @@
+.search-mode-selector {
+  width: 100%;
+  margin-bottom: 24px;
+}
+
+.search-mode-tabs {
+  display: flex;
+  gap: 0;
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.search-mode-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border: none;
+  background: transparent;
+  color: #666;
+  font-size: 15px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.search-mode-tab:hover {
+  color: #1890ff;
+  background: rgba(24, 144, 255, 0.05);
+}
+
+.search-mode-tab.active {
+  background: white;
+  color: #1890ff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.search-mode-icon {
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+}
+
+.search-mode-label {
+  display: flex;
+  align-items: center;
+}
+
+/* 响应式设计 */
+@media (max-width: 480px) {
+  .search-mode-tab {
+    padding: 10px 12px;
+    font-size: 14px;
+    gap: 6px;
+  }
+
+  .search-mode-icon {
+    font-size: 18px;
+  }
+
+  .search-mode-label {
+    font-size: 13px;
+  }
+}
+
+/* 小屏幕时隐藏文字，只显示图标 */
+@media (max-width: 360px) {
+  .search-mode-label {
+    display: none;
+  }
+
+  .search-mode-tab {
+    padding: 12px;
+  }
+
+  .search-mode-icon {
+    font-size: 24px;
+  }
+}

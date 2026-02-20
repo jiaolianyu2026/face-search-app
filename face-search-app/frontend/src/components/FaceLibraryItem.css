@@ -1,0 +1,206 @@
+/* 人像卡片 */
+.face-library-item {
+  border: 2px solid #d9d9d9;
+  border-radius: 8px;
+  overflow: hidden;
+  background: white;
+  transition: all 0.3s ease;
+}
+
+.face-library-item:hover {
+  border-color: #1890ff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.face-library-item.selected {
+  border-color: #52c41a;
+  background: #f6ffed;
+}
+
+/* 缩略图 */
+.face-library-item-thumbnail {
+  position: relative;
+  aspect-ratio: 1;
+  background: #f5f5f5;
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.face-library-item-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.face-library-item-thumbnail img.loading {
+  opacity: 0;
+}
+
+.face-library-item-thumbnail img.loaded {
+  opacity: 1;
+}
+
+.face-library-item-thumbnail:hover img {
+  transform: scale(1.05);
+}
+
+.face-library-item-thumbnail-placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  font-size: 64px;
+  color: #d9d9d9;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.face-library-item-thumbnail-placeholder.hidden {
+  display: none;
+}
+
+.face-library-item-selected-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  background: #52c41a;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: bold;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* 信息区域 */
+.face-library-item-info {
+  padding: 12px;
+}
+
+.face-library-item-name {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 14px;
+}
+
+.face-library-item-time {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 8px;
+}
+
+/* 操作按钮 */
+.face-library-item-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.button-small {
+  padding: 4px 12px;
+  font-size: 12px;
+  min-width: auto;
+}
+
+.button-danger {
+  background: #fff;
+  color: #f5222d;
+  border: 1px solid #f5222d;
+}
+
+.button-danger:hover {
+  background: #f5222d;
+  color: white;
+}
+
+/* 编辑模式 */
+.face-library-item-edit {
+  margin-bottom: 8px;
+}
+
+.face-library-item-edit .input {
+  width: 100%;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.face-library-item-edit-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.face-library-item-edit-actions .button {
+  flex: 1;
+}
+
+/* 删除确认 */
+.face-library-item-delete-confirm {
+  padding: 12px;
+  background: #fff2e8;
+  border: 2px solid #ff9c6e;
+  border-radius: 6px;
+  margin-top: 8px;
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.face-library-item-delete-confirm p {
+  margin: 0 0 12px 0;
+  color: #d4380d;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.face-library-item-delete-confirm p::before {
+  content: '⚠️';
+  font-size: 16px;
+}
+
+.face-library-item-delete-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.face-library-item-delete-actions .button {
+  flex: 1;
+  font-weight: 500;
+}

@@ -43,6 +43,29 @@ logger = get_logger('app')
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE_BYTES
+app.url_map.strict_slashes = False  # 禁用严格的斜杠处理
+
+
+@app.before_request
+def handle_invalid_face_id_urls():
+    """
+    在路由匹配之前拦截包含无效 face_id 的 URL
+    
+    处理以下情况：
+    - /api/library/faces//... (face_id 以斜杠开头)
+    - /api/library/faces//thumbnail (空 face_id 的 thumbnail)
+    """
+    path = request.path
+    
+    # 检查是否是人像库 API 的路径
+    if path.startswith('/api/library/faces/'):
+        # 检查是否有连续的斜杠（表示空或以斜杠开头的 face_id）
+        if '//' in path:
+            raise NotFoundError(
+                "人像ID无效",
+                resource_type="library_face",
+                resource_id=""
+            )
 
 # Initialize SocketIO for real-time progress updates
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
@@ -458,17 +481,20 @@ def _handle_single_face_search(data: dict, search_folder: str, threshold: float)
             
             # Define progress callback with WebSocket support
             def progress_callback(progress: Progress):
-                search_task.progress = progress
-                # Emit progress update via WebSocket
-                socketio.emit('search_progress', {
-                    'taskId': search_task.taskId,
-                    'progress': {
-                        'current': progress.current,
-                        'total': progress.total,
-                        'percentage': progress.percentage,
-                        'currentFile': progress.currentFile
-                    }
-                })
+                try:
+                    search_task.progress = progress
+                    # Emit progress update via WebSocket
+                    socketio.emit('search_progress', {
+                        'taskId': search_task.taskId,
+                        'progress': {
+                            'current': progress.current,
+                            'total': progress.total,
+                            'percentage': progress.percentage,
+                            'currentFile': progress.currentFile
+                        }
+                    })
+                except Exception as e:
+                    logger.error(f"进度回调发生错误: {str(e)}", exc_info=True)
             
             # Execute search
             search_result = face_searcher.searchFaces(
@@ -682,17 +708,20 @@ def _handle_multi_face_search(data: dict, search_folder: str, threshold: float):
             
             # 定义进度回调
             def progress_callback(progress: Progress):
-                search_task.progress = progress
-                # 发送进度更新
-                socketio.emit('search_progress', {
-                    'taskId': search_task.taskId,
-                    'progress': {
-                        'current': progress.current,
-                        'total': progress.total,
-                        'percentage': progress.percentage,
-                        'currentFile': progress.currentFile
-                    }
-                })
+                try:
+                    search_task.progress = progress
+                    # 发送进度更新
+                    socketio.emit('search_progress', {
+                        'taskId': search_task.taskId,
+                        'progress': {
+                            'current': progress.current,
+                            'total': progress.total,
+                            'percentage': progress.percentage,
+                            'currentFile': progress.currentFile
+                        }
+                    })
+                except Exception as e:
+                    logger.error(f"进度回调发生错误: {str(e)}", exc_info=True)
             
             # 执行多人像搜索
             multi_search_result = multi_searcher.searchMultipleFaces(
@@ -1229,6 +1258,10 @@ def save_face_to_library():
     if not data:
         raise ValidationError("需要提供 JSON 数据")
     
+    # 验证 data 是字典类型
+    if not isinstance(data, dict):
+        raise ValidationError("请求体必须是 JSON 对象")
+    
     # 验证必需参数
     required_fields = ['imageId', 'faceId', 'name']
     for field in required_fields:
@@ -1238,6 +1271,22 @@ def save_face_to_library():
     image_id = data['imageId']
     face_id = data['faceId']
     name = data['name']
+    
+    # 验证参数类型（必须是字符串）
+    if not isinstance(image_id, str):
+        raise ValidationError("imageId 必须是字符串", field="imageId")
+    if not isinstance(face_id, str):
+        raise ValidationError("faceId 必须是字符串", field="faceId")
+    if not isinstance(name, str):
+        raise ValidationError("name 必须是字符串", field="name")
+    
+    # 验证参数非空
+    if not image_id:
+        raise ValidationError("imageId 不能为空", field="imageId")
+    if not face_id:
+        raise ValidationError("faceId 不能为空", field="faceId")
+    if not name:
+        raise ValidationError("name 不能为空", field="name")
     
     logger.info(f"保存人像到库: imageId={image_id}, faceId={face_id}, name={name}")
     
@@ -1333,21 +1382,30 @@ def save_face_to_library():
         )
 
 
-@app.route('/api/library/faces', methods=['GET'])
+@app.route('/api/library/faces', methods=['GET', 'PUT', 'DELETE'])
 def get_all_library_faces():
     """
-    获取所有库人像列表
+    获取所有库人像列表（GET）或处理无效的单资源请求（PUT/DELETE）
     
-    Query Parameters:
+    Query Parameters (GET only):
         - sortBy: 排序字段 ('created_at' 或 'name')，默认 'created_at'
         - search: 名称搜索关键词（可选）
         
     Response:
         - 200: 返回人像列表（不包含特征向量）
+        - 404: PUT/DELETE 方法访问此端点（缺少 face_id）
         - 500: 内部错误
         
     需求: 6.2
     """
+    # 如果是 PUT 或 DELETE 方法，说明缺少 face_id
+    if request.method in ['PUT', 'DELETE']:
+        raise NotFoundError(
+            "人像ID无效",
+            resource_type="library_face",
+            resource_id=""
+        )
+    
     # 获取查询参数
     sort_by = request.args.get('sortBy', 'created_at')
     search_name = request.args.get('search', None)
@@ -1377,8 +1435,26 @@ def get_all_library_faces():
         )
 
 
-@app.route('/api/library/faces/<face_id>', methods=['GET'])
-def get_library_face(face_id: str):
+# 专门处理 /api/library/faces/ 的路由（带尾部斜杠）
+# 这个路由会捕获试图访问空 ID 资源的请求
+@app.route('/api/library/faces/', methods=['GET', 'PUT', 'DELETE'], strict_slashes=False)
+@app.route('/api/library/faces//', methods=['GET', 'PUT', 'DELETE'])  # 处理 face_id='/' 的情况
+def handle_empty_face_id():
+    """
+    处理带尾部斜杠的请求（空 face_id）
+    
+    所有方法都返回 404（缺少 face_id）
+    """
+    # 所有方法都返回 404，因为这是试图访问空 ID 的资源
+    raise NotFoundError(
+        "人像ID无效",
+        resource_type="library_face",
+        resource_id=""
+    )
+
+
+@app.route('/api/library/faces/<path:face_id>', methods=['GET'])
+def get_library_face(face_id: str = ''):
     """
     获取单个库人像详情
     
@@ -1392,6 +1468,14 @@ def get_library_face(face_id: str):
         
     需求: 6.3
     """
+    # 验证 face_id 非空且不包含斜杠（斜杠不是有效的 ID）
+    if not face_id or not isinstance(face_id, str) or '/' in face_id or face_id.endswith('/thumbnail'):
+        raise NotFoundError(
+            "人像ID无效",
+            resource_type="library_face",
+            resource_id=face_id if isinstance(face_id, str) else ""
+        )
+    
     logger.info(f"查询库人像详情: {face_id}")
     
     try:
@@ -1428,8 +1512,8 @@ def get_library_face(face_id: str):
         )
 
 
-@app.route('/api/library/faces/<face_id>', methods=['PUT'])
-def update_library_face(face_id: str):
+@app.route('/api/library/faces/<path:face_id>', methods=['PUT'])
+def update_library_face(face_id: str = ''):
     """
     更新库人像信息
     
@@ -1447,6 +1531,14 @@ def update_library_face(face_id: str):
         
     需求: 6.4
     """
+    # 验证 face_id 非空且不包含斜杠（斜杠不是有效的 ID）
+    if not face_id or not isinstance(face_id, str) or '/' in face_id or face_id.endswith('/thumbnail'):
+        raise NotFoundError(
+            "人像ID无效",
+            resource_type="library_face",
+            resource_id=face_id if isinstance(face_id, str) else ""
+        )
+    
     # 获取请求数据
     data = request.get_json()
     if not data or 'name' not in data:
@@ -1487,8 +1579,8 @@ def update_library_face(face_id: str):
         )
 
 
-@app.route('/api/library/faces/<face_id>', methods=['DELETE'])
-def delete_library_face(face_id: str):
+@app.route('/api/library/faces/<path:face_id>', methods=['DELETE'], strict_slashes=False)
+def delete_library_face(face_id: str = ''):
     """
     删除库人像
     
@@ -1502,6 +1594,14 @@ def delete_library_face(face_id: str):
         
     需求: 6.5
     """
+    # 验证 face_id 非空且不包含斜杠（斜杠不是有效的 ID）
+    if not face_id or not isinstance(face_id, str) or '/' in face_id:
+        raise NotFoundError(
+            "人像ID无效",
+            resource_type="library_face",
+            resource_id=face_id if isinstance(face_id, str) else ""
+        )
+    
     logger.info(f"删除库人像: {face_id}")
     
     try:
@@ -1533,8 +1633,20 @@ def delete_library_face(face_id: str):
         )
 
 
-@app.route('/api/library/faces/<face_id>/thumbnail', methods=['GET'])
-def get_library_face_thumbnail(face_id: str):
+# 处理空 face_id 的 thumbnail 请求
+@app.route('/api/library/faces//thumbnail', methods=['GET'])
+@app.route('/api/library/faces/thumbnail', methods=['GET'])
+def handle_empty_face_id_thumbnail():
+    """处理空 face_id 的缩略图请求"""
+    raise NotFoundError(
+        "人像ID无效",
+        resource_type="library_face",
+        resource_id=""
+    )
+
+
+@app.route('/api/library/faces/<path:face_id>/thumbnail', methods=['GET'], strict_slashes=False)
+def get_library_face_thumbnail(face_id: str = ''):
     """
     获取库人像缩略图
     
@@ -1548,6 +1660,14 @@ def get_library_face_thumbnail(face_id: str):
         
     需求: 6.6
     """
+    # 验证 face_id 非空且不包含斜杠（斜杠不是有效的 ID）
+    if not face_id or not isinstance(face_id, str) or '/' in face_id:
+        raise NotFoundError(
+            "人像ID无效",
+            resource_type="library_face",
+            resource_id=face_id if isinstance(face_id, str) else ""
+        )
+    
     logger.info(f"获取库人像缩略图: {face_id}")
     
     try:

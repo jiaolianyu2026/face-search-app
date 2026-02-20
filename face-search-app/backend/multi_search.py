@@ -76,21 +76,29 @@ class MultiSearchModule:
             logger.info(f"搜索人像 {face_idx + 1}/{num_faces}: {face_id}")
             
             # 创建进度回调包装器（综合多个人像的进度）
-            def wrapped_progress_callback(progress: Progress):
+            # 使用默认参数捕获当前的 face_idx 值，避免闭包问题
+            def wrapped_progress_callback(progress: Progress, current_face_idx=face_idx):
                 if progress_callback:
-                    # 计算综合进度
-                    # 每个人像占总进度的 1/num_faces
-                    base_progress = face_idx * 100 / num_faces
-                    face_progress = progress.percentage / num_faces
-                    total_percentage = base_progress + face_progress
-                    
-                    # 创建综合进度对象
-                    combined_progress = Progress(
-                        current=int(total_percentage),
-                        total=100,
-                        currentFile=progress.currentFile
-                    )
-                    progress_callback(combined_progress)
+                    try:
+                        # 计算综合进度
+                        # 每个人像占总进度的 1/num_faces
+                        base_progress = current_face_idx / num_faces
+                        face_progress = (progress.current / progress.total if progress.total > 0 else 0) / num_faces
+                        total_progress_ratio = base_progress + face_progress
+                        
+                        # 创建综合进度对象
+                        # 使用虚拟的 current/total 来表示综合进度
+                        virtual_total = 1000  # 使用较大的数字以提高精度
+                        virtual_current = int(total_progress_ratio * virtual_total)
+                        
+                        combined_progress = Progress(
+                            current=virtual_current,
+                            total=virtual_total,
+                            currentFile=progress.currentFile
+                        )
+                        progress_callback(combined_progress)
+                    except Exception as e:
+                        logger.error(f"进度回调发生错误: {str(e)}", exc_info=True)
             
             # 执行单个人像搜索
             try:

@@ -230,8 +230,8 @@ class TestProperty1_UploadEndpointFormatValidation:
             f"Response should indicate failure for {extension}"
         assert 'error' in data, \
             f"Response should contain error message for {extension}"
-        assert "Unsupported" in data['error'], \
-            f"Error should mention 'Unsupported' for {extension}"
+        assert "Unsupported" in data['error']['message'], \
+            f"Error message should mention 'Unsupported' for {extension}"
 
 
 class TestProperty2_FileSizeLimit:
@@ -384,7 +384,8 @@ class TestProperty2_FileSizeLimit:
                 f"Response should indicate failure for oversized file"
             assert 'error' in data, \
                 f"Response should contain error message"
-            assert 'exceeds' in data['error'].lower() or 'limit' in data['error'].lower(), \
+            error_msg = data['error']['message'].lower()
+            assert 'exceeds' in error_msg or 'limit' in error_msg or '超' in error_msg, \
                 f"Error message should mention size limit"
         finally:
             # Cleanup

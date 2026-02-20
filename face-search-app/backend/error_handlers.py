@@ -83,6 +83,7 @@ def create_error_response(error_code: str, message: str, status_code: int, **kwa
         (response, status_code) 元组
     """
     response = {
+        "success": False,
         "error": {
             "code": error_code,
             "message": message

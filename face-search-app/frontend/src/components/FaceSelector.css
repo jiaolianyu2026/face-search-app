@@ -1,0 +1,108 @@
+.face-selector {
+  width: 100%;
+}
+
+.face-selector-image-container {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  margin: 20px 0;
+}
+
+.face-selector-image {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 8px;
+}
+
+.face-selector-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.face-marker {
+  pointer-events: all;
+  transition: all 0.3s ease;
+}
+
+.face-marker:hover {
+  opacity: 1 !important;
+  stroke-width: 3;
+}
+
+.face-marker-highlight {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.face-marker-center {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.1;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.face-selector-hint {
+  text-align: center;
+  margin-top: 12px;
+  color: #666;
+  font-size: 14px;
+}
+
+.face-selector-hint p {
+  margin: 0;
+  padding: 8px 16px;
+  background-color: #f0f8ff;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .face-selector-image-container {
+    margin: 15px 0;
+  }
+
+  .face-selector-hint {
+    font-size: 13px;
+  }
+
+  .face-selector-hint p {
+    padding: 6px 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .face-selector-image-container {
+    margin: 10px 0;
+  }
+
+  .face-marker {
+    stroke-width: 2;
+  }
+
+  .face-marker:hover {
+    stroke-width: 2.5;
+  }
+}

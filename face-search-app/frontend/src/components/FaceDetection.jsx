@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import './FaceDetection.css'
 
-function FaceDetection({ imageId, previewUrl, onFaceSelect, onBack }) {
+function FaceDetection({ imageId, previewUrl, onFaceSelect, onBack, onFacesDetected }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [faces, setFaces] = useState([])
@@ -36,6 +36,10 @@ function FaceDetection({ imageId, previewUrl, onFaceSelect, onBack }) {
         // 如果只有一个人脸，自动选中
         if (response.data.faces.length === 1) {
           setSelectedFaceIndex(0)
+        }
+        // 通知父组件检测到的人像
+        if (onFacesDetected) {
+          onFacesDetected(response.data.faces)
         }
       } else {
         setError('未检测到人脸，请上传包含清晰人脸的图片')

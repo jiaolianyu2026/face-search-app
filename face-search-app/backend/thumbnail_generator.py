@@ -187,3 +187,27 @@ class ThumbnailGenerator:
         except Exception as e:
             logger.error(f"删除缩略图失败: {str(e)}")
             return False
+    
+    def clearThumbnails(self) -> int:
+        """
+        清除所有缩略图文件
+        
+        Returns:
+            清除的文件数量
+        """
+        try:
+            count = 0
+            if os.path.exists(self.thumbnail_dir):
+                for filename in os.listdir(self.thumbnail_dir):
+                    file_path = os.path.join(self.thumbnail_dir, filename)
+                    if os.path.isfile(file_path):
+                        try:
+                            os.remove(file_path)
+                            count += 1
+                        except Exception as e:
+                            logger.warning(f"无法删除缩略图 {file_path}: {str(e)}")
+            logger.info(f"已清除 {count} 个缩略图")
+            return count
+        except Exception as e:
+            logger.error(f"清除缩略图失败: {str(e)}")
+            return 0

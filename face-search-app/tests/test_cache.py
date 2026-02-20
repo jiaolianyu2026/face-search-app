@@ -180,7 +180,7 @@ def test_clear_cache(cache_module, temp_image_file, sample_faces):
     assert cache_module.get_cache_size() == 1
     
     # Clear cache
-    cache_module.clear_cache()
+    cache_module.clearCache()
     assert cache_module.get_cache_size() == 0
     
     # Verify cache miss

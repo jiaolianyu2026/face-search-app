@@ -1,11 +1,9 @@
 import { useState } from 'react'
-import axios from 'axios'
 import './FolderSelection.css'
 
 function FolderSelection({ imageId, faceId, onSearchStart, onBack }) {
   const [folderPath, setFolderPath] = useState('')
   const [threshold, setThreshold] = useState(0.6)
-  const [starting, setStarting] = useState(false)
   const [error, setError] = useState(null)
 
   const handleStartSearch = async () => {
@@ -15,33 +13,9 @@ function FolderSelection({ imageId, faceId, onSearchStart, onBack }) {
     }
 
     setError(null)
-    setStarting(true)
-
-    try {
-      const response = await axios.post('/api/search', {
-        imageId,
-        faceId,
-        searchFolder: folderPath,
-        threshold
-      })
-
-      if (response.data.taskId) {
-        onSearchStart(folderPath, {
-          taskId: response.data.taskId,
-          status: response.data.status
-        })
-      } else {
-        setError('启动搜索失败')
-      }
-    } catch (err) {
-      console.error('搜索错误:', err)
-      if (err.response?.data?.error) {
-        setError(err.response.data.error.message || '启动搜索失败')
-      } else {
-        setError('启动搜索失败，请检查文件夹路径是否正确')
-      }
-      setStarting(false)
-    }
+    
+    // 直接调用父组件的回调，由父组件处理搜索逻辑
+    onSearchStart(folderPath, threshold)
   }
 
   return (
@@ -60,7 +34,6 @@ function FolderSelection({ imageId, faceId, onSearchStart, onBack }) {
           placeholder="例如: C:\Users\用户名\Pictures"
           value={folderPath}
           onChange={(e) => setFolderPath(e.target.value)}
-          disabled={starting}
         />
         <p className="input-hint">
           💡 提示：输入完整的文件夹路径，例如 D:\Photos 或 C:\Users\用户名\Pictures
@@ -78,7 +51,6 @@ function FolderSelection({ imageId, faceId, onSearchStart, onBack }) {
             step="0.05"
             value={threshold}
             onChange={(e) => setThreshold(parseFloat(e.target.value))}
-            disabled={starting}
             className="slider"
           />
           <span className="threshold-value">{threshold.toFixed(2)}</span>
@@ -98,16 +70,15 @@ function FolderSelection({ imageId, faceId, onSearchStart, onBack }) {
         <button
           className="button"
           onClick={onBack}
-          disabled={starting}
         >
           ← 返回
         </button>
         <button
           className="button button-primary"
           onClick={handleStartSearch}
-          disabled={starting || !folderPath.trim()}
+          disabled={!folderPath.trim()}
         >
-          {starting ? '正在启动...' : '🔍 开始搜索'}
+          🔍 开始搜索
         </button>
       </div>
     </div>

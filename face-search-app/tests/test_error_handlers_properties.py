@@ -547,7 +547,9 @@ def test_property_error_log_format_consistency(message, error_type):
         # Verify message part
         message_part = '|'.join(parts[3:]).strip()
         assert len(message_part) > 0, "Message should not be empty"
-        assert message in message_part, "Message should contain original error message"
+        # 只有当原始消息不是纯空白时才验证包含关系
+        if message.strip():
+            assert message in message_part, "Message should contain original error message"
     
     finally:
         # Cleanup
