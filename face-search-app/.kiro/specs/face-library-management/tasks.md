@@ -80,7 +80,7 @@
   - 确保所有测试通过，如有问题请询问用户。
 
 - [ ] 5. 实现人像库 API 端点
-  - [ ] 5.1 在 `backend/app.py` 中添加 API 端点
+  - [x] 5.1 在 `backend/app.py` 中添加 API 端点
     - `POST /api/library/faces`: 保存人像到库
       - 接收 imageId, faceId, name
       - 从 detection_cache 获取人像特征
@@ -101,7 +101,7 @@
       - 返回缩略图图片文件
     - _需求: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
 
-  - [ ] 5.2 实现 API 输入验证和错误处理
+  - [x] 5.2 实现 API 输入验证和错误处理
     - 验证必需参数存在
     - 验证参数类型和格式
     - 返回适当的 HTTP 状态码（400, 404, 500）
@@ -147,7 +147,7 @@
     - _需求: 8.2, 8.3, 8.4, 8.5, 8.7_
 
 - [ ] 7. 扩展搜索 API 支持多人像
-  - [ ] 7.1 修改 `POST /api/search` 端点
+  - [x] 7.1 修改 `POST /api/search` 端点
     - 支持新的请求格式：`targetFaces` 数组
     - 每个 targetFace 可以是 `{type: "uploaded", imageId, faceId}` 或 `{type: "library", libraryFaceId}`
     - 从 detection_cache 或 FaceLibraryModule 提取特征向量

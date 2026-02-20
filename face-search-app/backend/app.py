@@ -22,12 +22,14 @@ from config import (
     ENABLE_PARALLEL_PROCESSING,
     MAX_WORKER_THREADS
 )
-from models import UploadResult, DetectionResult, SearchTask, Progress, ExportResult
+from models import UploadResult, DetectionResult, SearchTask, Progress, ExportResult, LibraryFace
 from face_detection import FaceDetectionModule
 from face_search import FaceSearchModule
 from image_export import ImageExportModule
 from thumbnail_generator import ThumbnailGenerator
 from cache_module import CacheModule
+from face_library import FaceLibraryModule
+from multi_search import MultiSearchModule
 from error_handlers import (
     ValidationError,
     NotFoundError,
@@ -57,6 +59,8 @@ face_searcher = FaceSearchModule()
 image_exporter = ImageExportModule()
 thumbnail_generator = ThumbnailGenerator()
 cache_module = CacheModule()
+face_library = FaceLibraryModule()
+multi_searcher = MultiSearchModule()
 
 # Store active search tasks in memory
 search_tasks: Dict[str, SearchTask] = {}
@@ -277,11 +281,17 @@ def detect_faces():
 @app.route('/api/search', methods=['POST'])
 def search_faces():
     """
-    Start a face search task.
+    Start a face search task (支持单人像和多人像搜索).
     
-    Request (JSON body):
+    Request (JSON body) - 旧格式（向后兼容）:
         - imageId: Unique identifier of uploaded image (required)
         - faceId: Unique identifier of face to search (required)
+        - searchFolder: Path to folder to search (required)
+        - threshold: Similarity threshold 0-1 (optional, default 0.6)
+    
+    Request (JSON body) - 新格式（多人像）:
+        - targetFaces: Array of target faces (required)
+          - Each item: {type: "uploaded", imageId, faceId} or {type: "library", libraryFaceId}
         - searchFolder: Path to folder to search (required)
         - threshold: Similarity threshold 0-1 (optional, default 0.6)
         
@@ -295,19 +305,42 @@ def search_faces():
         - 404: Image or face not found
         - 500: Internal error
         
-    Requirements: 4.1, 4.2, 4.3, 4.4, 4.5
+    Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.7, 8.1
     """
     # Get request data
     data = request.get_json()
     if not data:
         raise ValidationError("需要提供请求体")
     
+    search_folder = data.get('searchFolder')
+    threshold = data.get('threshold', runtime_config['similarity_threshold'])
+    
+    # 检查是新格式还是旧格式
+    if 'targetFaces' in data:
+        # 新格式：多人像搜索
+        logger.info("使用新格式（多人像搜索）")
+        return _handle_multi_face_search(data, search_folder, threshold)
+    else:
+        # 旧格式：单人像搜索（向后兼容）
+        logger.info("使用旧格式（单人像搜索）")
+        return _handle_single_face_search(data, search_folder, threshold)
+
+
+def _handle_single_face_search(data: dict, search_folder: str, threshold: float):
+    """
+    处理单人像搜索（旧格式，向后兼容）
+    
+    Args:
+        data: 请求数据
+        search_folder: 搜索文件夹
+        threshold: 相似度阈值
+        
+    Returns:
+        Flask response
+    """
     # Validate required parameters
     image_id = data.get('imageId')
     face_id = data.get('faceId')
-    search_folder = data.get('searchFolder')
-    # Use runtime config threshold if not specified
-    threshold = data.get('threshold', runtime_config['similarity_threshold'])
     
     if not image_id:
         raise ValidationError("需要提供 imageId", field="imageId")
@@ -324,7 +357,7 @@ def search_faces():
     except (ValueError, TypeError):
         raise ValidationError("threshold 必须是数字", field="threshold")
     
-    # Validate search folder exists (before processing image)
+    # Validate search folder exists
     if not os.path.exists(search_folder):
         logger.warning(f"搜索文件夹不存在: {search_folder}")
         raise ValidationError(f"搜索文件夹不存在: {search_folder}", field="searchFolder")
@@ -497,6 +530,237 @@ def search_faces():
     return jsonify({
         "taskId": search_task.taskId,
         "status": search_task.status
+    }), 200
+
+
+def _handle_multi_face_search(data: dict, search_folder: str, threshold: float):
+    """
+    处理多人像搜索（新格式）
+    
+    Args:
+        data: 请求数据
+        search_folder: 搜索文件夹
+        threshold: 相似度阈值
+        
+    Returns:
+        Flask response
+        
+    需求: 4.5, 4.7, 8.1
+    """
+    # 验证必需参数
+    target_faces = data.get('targetFaces')
+    
+    if not target_faces or not isinstance(target_faces, list):
+        raise ValidationError("需要提供 targetFaces 数组", field="targetFaces")
+    
+    if len(target_faces) == 0:
+        raise ValidationError("targetFaces 不能为空", field="targetFaces")
+    
+    if not search_folder:
+        raise ValidationError("需要提供 searchFolder", field="searchFolder")
+    
+    # 验证阈值
+    try:
+        threshold = float(threshold)
+        if not 0 <= threshold <= 1:
+            raise ValidationError("threshold 必须在 0 到 1 之间", field="threshold")
+    except (ValueError, TypeError):
+        raise ValidationError("threshold 必须是数字", field="threshold")
+    
+    # 验证搜索文件夹存在
+    if not os.path.exists(search_folder):
+        logger.warning(f"搜索文件夹不存在: {search_folder}")
+        raise ValidationError(f"搜索文件夹不存在: {search_folder}", field="searchFolder")
+    if not os.path.isdir(search_folder):
+        logger.warning(f"搜索路径不是文件夹: {search_folder}")
+        raise ValidationError(f"搜索路径不是文件夹: {search_folder}", field="searchFolder")
+    
+    logger.info(f"多人像搜索: {len(target_faces)} 个目标人像")
+    
+    # 提取所有目标人像的特征向量
+    target_features_list = []  # [(faceId, features)]
+    
+    for idx, target_face in enumerate(target_faces):
+        face_type = target_face.get('type')
+        
+        if face_type == 'uploaded':
+            # 从上传的图片中获取人像特征
+            image_id = target_face.get('imageId')
+            face_id = target_face.get('faceId')
+            
+            if not image_id or not face_id:
+                raise ValidationError(
+                    f"上传人像缺少 imageId 或 faceId (索引 {idx})",
+                    field=f"targetFaces[{idx}]"
+                )
+            
+            # 从 detection_cache 获取特征
+            if image_id not in detection_cache:
+                raise NotFoundError(
+                    f"未找到图片的检测结果: {image_id}",
+                    resource_type="detection_result",
+                    resource_id=image_id
+                )
+            
+            detection_result = detection_cache[image_id]
+            target_face_obj = None
+            for face in detection_result.faces:
+                if face.faceId == face_id:
+                    target_face_obj = face
+                    break
+            
+            if not target_face_obj:
+                raise NotFoundError(
+                    f"未找到人像: {face_id}",
+                    resource_type="face",
+                    resource_id=face_id
+                )
+            
+            target_features_list.append((f"uploaded:{image_id}:{face_id}", target_face_obj.features))
+            logger.info(f"添加上传人像: {image_id}:{face_id}")
+            
+        elif face_type == 'library':
+            # 从人像库中获取人像特征
+            library_face_id = target_face.get('libraryFaceId')
+            
+            if not library_face_id:
+                raise ValidationError(
+                    f"库人像缺少 libraryFaceId (索引 {idx})",
+                    field=f"targetFaces[{idx}]"
+                )
+            
+            # 从数据库获取人像
+            library_face = face_library.getFace(library_face_id)
+            
+            if not library_face:
+                raise NotFoundError(
+                    f"未找到库人像: {library_face_id}",
+                    resource_type="library_face",
+                    resource_id=library_face_id
+                )
+            
+            target_features_list.append((f"library:{library_face_id}", library_face.feature_vector))
+            logger.info(f"添加库人像: {library_face_id} ({library_face.name})")
+            
+        else:
+            raise ValidationError(
+                f"无效的人像类型: {face_type} (索引 {idx})",
+                field=f"targetFaces[{idx}].type"
+            )
+    
+    # 创建搜索任务（使用第一个人像的特征作为占位符）
+    search_task = SearchTask.create(
+        targetFeatures=target_features_list[0][1],
+        searchFolder=search_folder,
+        threshold=threshold
+    )
+    
+    # 存储任务
+    search_tasks[search_task.taskId] = search_task
+    
+    logger.info(f"创建多人像搜索任务: {search_task.taskId}, {len(target_features_list)} 个目标人像")
+    
+    # 定义后台搜索函数
+    def run_multi_search():
+        """在后台线程中执行多人像搜索"""
+        try:
+            # 更新任务状态为运行中
+            search_task.status = 'running'
+            logger.info(f"开始执行多人像搜索任务: {search_task.taskId}")
+            
+            # 发送初始状态
+            socketio.emit('search_status', {
+                'taskId': search_task.taskId,
+                'status': 'running',
+                'progress': {
+                    'current': 0,
+                    'total': 0,
+                    'percentage': 0,
+                    'currentFile': None
+                }
+            })
+            
+            # 定义进度回调
+            def progress_callback(progress: Progress):
+                search_task.progress = progress
+                # 发送进度更新
+                socketio.emit('search_progress', {
+                    'taskId': search_task.taskId,
+                    'progress': {
+                        'current': progress.current,
+                        'total': progress.total,
+                        'percentage': progress.percentage,
+                        'currentFile': progress.currentFile
+                    }
+                })
+            
+            # 执行多人像搜索
+            multi_search_result = multi_searcher.searchMultipleFaces(
+                target_features_list=target_features_list,
+                search_folder=search_folder,
+                threshold=threshold,
+                progress_callback=progress_callback
+            )
+            
+            # 更新任务结果（转换为 Match 对象列表）
+            from models import Match
+            matches = []
+            for match_dict in multi_search_result.matches:
+                matches.append(Match(
+                    imagePath=match_dict['imagePath'],
+                    similarity=match_dict['similarity'],
+                    faceLocation=match_dict['faceLocation'],
+                    thumbnailUrl=match_dict.get('thumbnailUrl')
+                ))
+            
+            search_task.results = matches
+            search_task.progress = Progress(
+                current=multi_search_result.total_processed,
+                total=multi_search_result.total_processed
+            )
+            
+            # 更新状态
+            if multi_search_result.cancelled:
+                search_task.status = 'cancelled'
+                search_task.cancelled = True
+                logger.info(f"多人像搜索已取消: {search_task.taskId}")
+                
+                socketio.emit('search_cancelled', {
+                    'taskId': search_task.taskId,
+                    'status': 'cancelled',
+                    'totalProcessed': multi_search_result.total_processed,
+                    'matchesFound': len(matches)
+                })
+            else:
+                search_task.status = 'completed'
+                logger.info(f"多人像搜索完成: {search_task.taskId}, 找到 {len(matches)} 个匹配")
+                
+                socketio.emit('search_completed', {
+                    'taskId': search_task.taskId,
+                    'status': 'completed',
+                    'totalProcessed': multi_search_result.total_processed,
+                    'matchesFound': len(matches)
+                })
+                
+        except Exception as e:
+            logger.error(f"多人像搜索失败: {search_task.taskId}, 错误: {str(e)}", exc_info=True)
+            search_task.status = 'completed'
+            search_task.progress = Progress(current=0, total=0)
+            
+            socketio.emit('search_error', {
+                'taskId': search_task.taskId,
+                'error': str(e)
+            })
+    
+    # 启动后台搜索线程
+    search_thread = threading.Thread(target=run_multi_search, daemon=True)
+    search_thread.start()
+    
+    # 返回任务ID
+    return jsonify({
+        "taskId": search_task.taskId,
+        "status": search_task.status,
+        "targetFacesCount": len(target_features_list)
     }), 200
 
 
@@ -938,6 +1202,389 @@ def handle_subscribe_task(data):
             'currentFile': task.progress.currentFile
         }
     })
+
+
+# ==================== 人像库管理 API 端点 ====================
+
+@app.route('/api/library/faces', methods=['POST'])
+def save_face_to_library():
+    """
+    保存人像到人像库
+    
+    Request (JSON body):
+        - imageId: 上传图片的ID (required)
+        - faceId: 人像ID (required)
+        - name: 人像名称 (required)
+        
+    Response:
+        - 200: 保存成功，返回 LibraryFace 信息
+        - 400: 请求参数错误
+        - 404: 图片或人像不存在
+        - 500: 内部错误
+        
+    需求: 6.1
+    """
+    # 获取请求数据
+    data = request.get_json()
+    if not data:
+        raise ValidationError("需要提供 JSON 数据")
+    
+    # 验证必需参数
+    required_fields = ['imageId', 'faceId', 'name']
+    for field in required_fields:
+        if field not in data:
+            raise ValidationError(f"缺少必需参数: {field}", field=field)
+    
+    image_id = data['imageId']
+    face_id = data['faceId']
+    name = data['name']
+    
+    logger.info(f"保存人像到库: imageId={image_id}, faceId={face_id}, name={name}")
+    
+    # 从 detection_cache 获取人像特征
+    if image_id not in detection_cache:
+        raise NotFoundError(
+            f"未找到图片的检测结果: {image_id}",
+            resource_type="detection_result",
+            resource_id=image_id
+        )
+    
+    detection_result = detection_cache[image_id]
+    
+    # 查找指定的人像
+    target_face = None
+    for face in detection_result.faces:
+        if face.faceId == face_id:
+            target_face = face
+            break
+    
+    if not target_face:
+        raise NotFoundError(
+            f"未找到人像: {face_id}",
+            resource_type="face",
+            resource_id=face_id
+        )
+    
+    # 查找原始图片路径
+    image_path = None
+    for filename in os.listdir(TEMP_UPLOAD_DIR):
+        if filename.startswith(image_id):
+            image_path = os.path.join(TEMP_UPLOAD_DIR, filename)
+            break
+    
+    if not image_path:
+        raise NotFoundError(
+            f"未找到图片文件: {image_id}",
+            resource_type="image",
+            resource_id=image_id
+        )
+    
+    try:
+        # 生成缩略图
+        thumbnail_filename = f"{uuid.uuid4()}.jpg"
+        thumbnail_path = thumbnail_generator.generateThumbnail(
+            image_path=image_path,
+            bounding_box=target_face.boundingBox,
+            output_filename=thumbnail_filename
+        )
+        
+        if not thumbnail_path:
+            raise ServiceError(
+                "生成缩略图失败",
+                service_name="thumbnail_generator"
+            )
+        
+        # 创建 LibraryFace 对象
+        library_face = LibraryFace.create(
+            name=name,
+            feature_vector=target_face.features,
+            thumbnail_path=thumbnail_path,
+            source_image_id=image_id
+        )
+        
+        # 保存到数据库
+        success = face_library.saveFace(library_face)
+        
+        if not success:
+            # 删除已生成的缩略图
+            thumbnail_generator.delete_thumbnail(thumbnail_path)
+            raise ServiceError(
+                "保存人像到数据库失败",
+                service_name="face_library"
+            )
+        
+        logger.info(f"人像已保存到库: {library_face.id} - {library_face.name}")
+        
+        # 返回保存的人像信息（不包含特征向量）
+        return jsonify({
+            'id': library_face.id,
+            'name': library_face.name,
+            'thumbnail_path': library_face.thumbnail_path,
+            'created_at': library_face.created_at,
+            'source_image_id': library_face.source_image_id
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"保存人像失败: {str(e)}", exc_info=True)
+        raise ServiceError(
+            f"保存人像失败: {str(e)}",
+            service_name="face_library",
+            original_error=e
+        )
+
+
+@app.route('/api/library/faces', methods=['GET'])
+def get_all_library_faces():
+    """
+    获取所有库人像列表
+    
+    Query Parameters:
+        - sortBy: 排序字段 ('created_at' 或 'name')，默认 'created_at'
+        - search: 名称搜索关键词（可选）
+        
+    Response:
+        - 200: 返回人像列表（不包含特征向量）
+        - 500: 内部错误
+        
+    需求: 6.2
+    """
+    # 获取查询参数
+    sort_by = request.args.get('sortBy', 'created_at')
+    search_name = request.args.get('search', None)
+    
+    logger.info(f"查询所有库人像: sortBy={sort_by}, search={search_name}")
+    
+    try:
+        # 查询所有人像
+        faces = face_library.getAllFaces(
+            sort_by=sort_by,
+            search_name=search_name
+        )
+        
+        logger.info(f"查询到 {len(faces)} 个库人像")
+        
+        return jsonify({
+            'faces': faces,
+            'total': len(faces)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"查询库人像失败: {str(e)}", exc_info=True)
+        raise ServiceError(
+            f"查询库人像失败: {str(e)}",
+            service_name="face_library",
+            original_error=e
+        )
+
+
+@app.route('/api/library/faces/<face_id>', methods=['GET'])
+def get_library_face(face_id: str):
+    """
+    获取单个库人像详情
+    
+    Args:
+        face_id: 人像ID
+        
+    Response:
+        - 200: 返回完整人像信息（包含特征向量）
+        - 404: 人像不存在
+        - 500: 内部错误
+        
+    需求: 6.3
+    """
+    logger.info(f"查询库人像详情: {face_id}")
+    
+    try:
+        # 查询人像
+        library_face = face_library.getFace(face_id)
+        
+        if not library_face:
+            raise NotFoundError(
+                f"未找到库人像: {face_id}",
+                resource_type="library_face",
+                resource_id=face_id
+            )
+        
+        logger.info(f"查询到库人像: {library_face.id} - {library_face.name}")
+        
+        # 返回完整信息（包含特征向量）
+        return jsonify({
+            'id': library_face.id,
+            'name': library_face.name,
+            'feature_vector': library_face.feature_vector,
+            'thumbnail_path': library_face.thumbnail_path,
+            'created_at': library_face.created_at,
+            'source_image_id': library_face.source_image_id
+        }), 200
+        
+    except NotFoundError:
+        raise
+    except Exception as e:
+        logger.error(f"查询库人像失败: {str(e)}", exc_info=True)
+        raise ServiceError(
+            f"查询库人像失败: {str(e)}",
+            service_name="face_library",
+            original_error=e
+        )
+
+
+@app.route('/api/library/faces/<face_id>', methods=['PUT'])
+def update_library_face(face_id: str):
+    """
+    更新库人像信息
+    
+    Args:
+        face_id: 人像ID
+        
+    Request (JSON body):
+        - name: 新名称 (required)
+        
+    Response:
+        - 200: 更新成功
+        - 400: 请求参数错误
+        - 404: 人像不存在
+        - 500: 内部错误
+        
+    需求: 6.4
+    """
+    # 获取请求数据
+    data = request.get_json()
+    if not data or 'name' not in data:
+        raise ValidationError("需要提供新名称", field="name")
+    
+    new_name = data['name']
+    
+    logger.info(f"更新库人像: {face_id}, 新名称={new_name}")
+    
+    try:
+        # 更新人像名称
+        success = face_library.updateFace(face_id, new_name)
+        
+        if not success:
+            raise NotFoundError(
+                f"未找到库人像: {face_id}",
+                resource_type="library_face",
+                resource_id=face_id
+            )
+        
+        logger.info(f"库人像已更新: {face_id} -> {new_name}")
+        
+        return jsonify({
+            'success': True,
+            'message': '人像名称已更新'
+        }), 200
+        
+    except NotFoundError:
+        raise
+    except ValueError as e:
+        raise ValidationError(str(e), field="name")
+    except Exception as e:
+        logger.error(f"更新库人像失败: {str(e)}", exc_info=True)
+        raise ServiceError(
+            f"更新库人像失败: {str(e)}",
+            service_name="face_library",
+            original_error=e
+        )
+
+
+@app.route('/api/library/faces/<face_id>', methods=['DELETE'])
+def delete_library_face(face_id: str):
+    """
+    删除库人像
+    
+    Args:
+        face_id: 人像ID
+        
+    Response:
+        - 200: 删除成功
+        - 404: 人像不存在
+        - 500: 内部错误
+        
+    需求: 6.5
+    """
+    logger.info(f"删除库人像: {face_id}")
+    
+    try:
+        # 删除人像
+        success = face_library.deleteFace(face_id)
+        
+        if not success:
+            raise NotFoundError(
+                f"未找到库人像: {face_id}",
+                resource_type="library_face",
+                resource_id=face_id
+            )
+        
+        logger.info(f"库人像已删除: {face_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': '人像已删除'
+        }), 200
+        
+    except NotFoundError:
+        raise
+    except Exception as e:
+        logger.error(f"删除库人像失败: {str(e)}", exc_info=True)
+        raise ServiceError(
+            f"删除库人像失败: {str(e)}",
+            service_name="face_library",
+            original_error=e
+        )
+
+
+@app.route('/api/library/faces/<face_id>/thumbnail', methods=['GET'])
+def get_library_face_thumbnail(face_id: str):
+    """
+    获取库人像缩略图
+    
+    Args:
+        face_id: 人像ID
+        
+    Response:
+        - 200: 返回缩略图图片文件
+        - 404: 人像或缩略图不存在
+        - 500: 内部错误
+        
+    需求: 6.6
+    """
+    logger.info(f"获取库人像缩略图: {face_id}")
+    
+    try:
+        # 查询人像
+        library_face = face_library.getFace(face_id)
+        
+        if not library_face:
+            raise NotFoundError(
+                f"未找到库人像: {face_id}",
+                resource_type="library_face",
+                resource_id=face_id
+            )
+        
+        # 检查缩略图文件是否存在
+        thumbnail_path = library_face.thumbnail_path
+        if not os.path.exists(thumbnail_path):
+            raise NotFoundError(
+                f"缩略图文件不存在: {thumbnail_path}",
+                resource_type="thumbnail",
+                resource_id=face_id
+            )
+        
+        # 返回缩略图文件
+        thumbnail_dir = os.path.dirname(thumbnail_path)
+        thumbnail_filename = os.path.basename(thumbnail_path)
+        
+        return send_from_directory(thumbnail_dir, thumbnail_filename)
+        
+    except NotFoundError:
+        raise
+    except Exception as e:
+        logger.error(f"获取缩略图失败: {str(e)}", exc_info=True)
+        raise ServiceError(
+            f"获取缩略图失败: {str(e)}",
+            service_name="face_library",
+            original_error=e
+        )
 
 
 if __name__ == '__main__':
