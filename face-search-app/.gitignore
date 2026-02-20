@@ -1,0 +1,86 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+venv_new/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache
+cache/
+.cache/
+.hypothesis/
+
+# Temporary files
+temp_uploads/
+*.tmp
+*.bak
+
+# Node modules
+node_modules/
+.vite/
+deps_temp_*/
+
+# Deployment packages
+deploy/FaceRecognitionSearch_v*/backend/__pycache__/
+deploy/FaceRecognitionSearch_v*/backend/app.log
+deploy/FaceRecognitionSearch_v*/backend/cache/
+deploy/FaceRecognitionSearch_v*/backend/temp_uploads/
+deploy/FaceRecognitionSearch_v*/frontend/node_modules/.vite/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Documentation (temporary reports)
+*_修复报告.md
+*_完成.md
+*_COMPLETE.md
+*_FINAL.md
+*_SUMMARY.md
+DEPLOYMENT_*.md
+PACKAGING_*.md
+FINAL_*.md
+ECONNREFUSED_*.md
+
+# External directories (outside project)
+../AI_for_kiro/
+../Kiro/
+../忆颜图谱/
