@@ -20,9 +20,9 @@ SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp']
 
 # Face recognition configuration
 # 相似度阈值（基于欧氏距离转换：similarity = 1 - distance）
-# face_recognition 官方推荐欧氏距离阈值 0.6，对应相似度 0.4
-# 即：相似度 >= 0.4 认为是同一个人
-DEFAULT_SIMILARITY_THRESHOLD = 0.4
+# face_recognition 官方推荐欧氏距离阈值 0.6（相似度 0.4）是宽松阈值
+# 实际使用中距离 0.45~0.55 的人脸已是明显不同的人，建议用 0.5（欧氏距离 0.5）
+DEFAULT_SIMILARITY_THRESHOLD = 0.5
 FACE_FEATURE_DIMENSION = 128
 
 # Storage paths

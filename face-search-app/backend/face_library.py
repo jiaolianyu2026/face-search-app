@@ -15,6 +15,9 @@ from models import LibraryFace
 # 配置日志
 logger = logging.getLogger(__name__)
 
+# 使用基于 __file__ 的绝对路径，避免相对路径在不同工作目录下解析错误
+_DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cache', 'face_library.db')
+
 
 class FaceLibraryModule:
     """
@@ -22,13 +25,15 @@ class FaceLibraryModule:
     使用 SQLite 数据库存储人像特征和元数据
     """
     
-    def __init__(self, db_path: str = 'backend/cache/face_library.db'):
+    def __init__(self, db_path: str = None):
         """
         初始化人像库模块
         
         Args:
             db_path: 数据库文件路径
         """
+        if db_path is None:
+            db_path = _DEFAULT_DB_PATH
         self.db_path = db_path
         self._ensure_db_dir()
         self._init_database()

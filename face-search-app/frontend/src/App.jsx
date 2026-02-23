@@ -61,8 +61,8 @@ function App() {
   }
 
   // 处理文件夹搜索
-  // 默认阈值 0.4 对应 face_recognition 欧氏距离 0.6（官方推荐阈值）
-  const handleFolderSearchStart = async (folder, threshold = 0.4) => {
+  // 默认阈值 0.5 对应 face_recognition 欧氏距离 0.5（更严格的匹配阈值）
+  const handleFolderSearchStart = async (folder, threshold = 0.5) => {
     if (!selectedFaces) {
       alert('请先选择人像')
       return
