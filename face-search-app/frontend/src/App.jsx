@@ -73,12 +73,12 @@ function App() {
       const targetFaces = []
       
       // 添加上传的人像
+      // face 对象已有独立的 imageId 和 faceId 字段，直接使用，不需要拆分
       selectedFaces.uploadedFaces.forEach(face => {
-        const parts = face.faceId.split(':')
         targetFaces.push({
           type: 'uploaded',
-          imageId: parts[0],
-          faceId: parts[1] || parts[0]
+          imageId: face.imageId,
+          faceId: face.faceId
         })
       })
       
