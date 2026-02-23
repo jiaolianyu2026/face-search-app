@@ -19,7 +19,10 @@ SUPPORTED_IMAGE_FORMATS = {
 SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp']
 
 # Face recognition configuration
-DEFAULT_SIMILARITY_THRESHOLD = 0.6
+# 相似度阈值（基于欧氏距离转换：similarity = 1 - distance）
+# face_recognition 官方推荐欧氏距离阈值 0.6，对应相似度 0.4
+# 即：相似度 >= 0.4 认为是同一个人
+DEFAULT_SIMILARITY_THRESHOLD = 0.4
 FACE_FEATURE_DIMENSION = 128
 
 # Storage paths
@@ -30,14 +33,14 @@ CACHE_DIR = os.path.join(os.path.dirname(__file__), 'cache')
 FACE_DETECTION_TIMEOUT_SECONDS = 2
 BATCH_SIZE = 100  # For processing large folders
 MAX_CONCURRENT_TASKS = 5
-MAX_WORKER_THREADS = 4  # Number of threads for parallel image processing
+MAX_WORKER_THREADS = 2  # 减少线程数，避免dlib多线程问题
 THUMBNAIL_SIZE = (200, 200)  # Thumbnail dimensions for preview
-ENABLE_PARALLEL_PROCESSING = True  # Enable/disable parallel processing
+ENABLE_PARALLEL_PROCESSING = False  # 临时禁用并行处理以调试问题
 FACE_DETECTION_MODEL = 'hog'  # 'hog' for speed, 'cnn' for accuracy
 
 # Logging configuration
 LOG_FILE = os.path.join(os.path.dirname(__file__), 'app.log')
-LOG_LEVEL = 'INFO'
+LOG_LEVEL = 'INFO'  # 恢复为INFO级别
 
 # Ensure directories exist
 os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)

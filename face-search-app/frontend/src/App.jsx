@@ -1,120 +1,101 @@
 import { useState } from 'react'
 import axios from 'axios'
 import './App.css'
-import ImageUpload from './components/ImageUpload'
-import FaceDetection from './components/FaceDetection'
+import UnifiedFaceSelector from './components/UnifiedFaceSelector'
 import FolderSelection from './components/FolderSelection'
 import SearchProgress from './components/SearchProgress'
 import SearchResults from './components/SearchResults'
-import SearchModeSelector from './components/SearchModeSelector'
-import FaceSelector from './components/FaceSelector'
-import FaceLibrary from './components/FaceLibrary'
 
 function App() {
   // 应用状态
-  const [currentStep, setCurrentStep] = useState(1) // 1: 上传/选择, 2: 检测, 3: 搜索, 4: 结果
-  const [searchMode, setSearchMode] = useState('upload') // 'upload' 或 'library'
-  const [uploadedImage, setUploadedImage] = useState(null) // { imageId, previewUrl }
-  const [detectedFaces, setDetectedFaces] = useState([]) // 检测到的人像列表
-  const [selectedUploadedFaceIds, setSelectedUploadedFaceIds] = useState([]) // 从上传图片选择的人像 ID
-  const [selectedLibraryFaceIds, setSelectedLibraryFaceIds] = useState([]) // 从人像库选择的人像 ID
+  const [currentStep, setCurrentStep] = useState(1) // 1: 人像选择, 2: 文件夹选择, 3: 搜索结果
+  const [selectedFaces, setSelectedFaces] = useState(null) // 选中的人像数据
   const [searchFolder, setSearchFolder] = useState('')
   const [searchTask, setSearchTask] = useState(null) // { taskId, status, progress, results }
 
-  // 处理图片上传成功
-  const handleUploadSuccess = (imageData) => {
-    setUploadedImage(imageData)
+  // 错误处理
+  const handleError = (error) => {
+    console.error('错误:', error)
+    
+    // 提取错误消息
+    let message = '操作失败，请重试'
+    
+    if (error.response?.data) {
+      // Axios 错误响应
+      const data = error.response.data
+      if (typeof data === 'string') {
+        message = data
+      } else if (data.error) {
+        message = typeof data.error === 'string' ? data.error : data.error.message || JSON.stringify(data.error)
+      } else if (data.message) {
+        message = data.message
+      }
+    } else if (error.message) {
+      // 标准 Error 对象
+      message = error.message
+    } else if (typeof error === 'string') {
+      // 字符串错误
+      message = error
+    } else {
+      // 其他类型，尝试转换为字符串
+      try {
+        message = JSON.stringify(error)
+      } catch {
+        message = String(error)
+      }
+    }
+    
+    alert(message) // 暂时使用 alert，后续可以改为 Toast
+  }
+
+  // 成功提示
+  const handleSuccess = (message) => {
+    console.log('成功:', message)
+    // 暂时不显示成功提示，避免过多弹窗
+  }
+
+  // 处理开始搜索
+  const handleStartSearch = async (selection) => {
+    setSelectedFaces(selection)
     setCurrentStep(2)
   }
 
-  // 处理人脸检测完成
-  const handleFacesDetected = (faces) => {
-    setDetectedFaces(faces)
-  }
-
-  // 处理上传图片中的人像选择变化
-  const handleUploadedFaceSelectionChange = (faceIds) => {
-    setSelectedUploadedFaceIds(faceIds)
-  }
-
-  // 处理人像库中的人像选择变化
-  const handleLibraryFaceSelectionChange = (faceIds) => {
-    setSelectedLibraryFaceIds(faceIds)
-  }
-
-  // 处理模式切换
-  const handleModeChange = (mode) => {
-    setSearchMode(mode)
-  }
-
-  // 保存人像到库
-  const handleSaveToLibrary = async (face) => {
-    const name = prompt('请输入人像名称：')
-    if (!name || !name.trim()) {
-      return
-    }
-
-    if (name.length > 100) {
-      alert('名称长度不能超过 100 字符')
+  // 处理文件夹搜索
+  // 默认阈值 0.4 对应 face_recognition 欧氏距离 0.6（官方推荐阈值）
+  const handleFolderSearchStart = async (folder, threshold = 0.4) => {
+    if (!selectedFaces) {
+      alert('请先选择人像')
       return
     }
 
     try {
-      const response = await axios.post('/api/library/faces', {
-        imageId: uploadedImage.imageId,
-        faceId: face.faceId,
-        name: name.trim()
-      })
-
-      alert(`人像 "${name}" 已成功保存到库！`)
+      // 构建搜索请求
+      const targetFaces = []
       
-      // 保存成功后，可以选择将该人像添加到库选择中
-      // 这样用户可以立即使用刚保存的人像进行搜索
-      if (response.data && response.data.id) {
-        // 可选：自动添加到选中的库人像列表
-        // setSelectedLibraryFaceIds(prev => [...prev, response.data.id])
+      // 添加上传的人像
+      selectedFaces.uploadedFaces.forEach(face => {
+        const parts = face.faceId.split(':')
+        targetFaces.push({
+          type: 'uploaded',
+          imageId: parts[0],
+          faceId: parts[1] || parts[0]
+        })
+      })
+      
+      // 添加库中的人像
+      selectedFaces.libraryFaces.forEach(libraryFaceId => {
+        targetFaces.push({
+          type: 'library',
+          libraryFaceId: libraryFaceId
+        })
+      })
+
+      if (targetFaces.length === 0) {
+        alert('请选择至少一个人像')
+        return
       }
-    } catch (err) {
-      console.error('保存人像失败:', err)
-      const errorMessage = err.response?.data?.error?.message || '保存人像失败，请重试'
-      alert(`错误: ${errorMessage}`)
-    }
-  }
 
-  // 获取所有选中的人像（合并上传和库人像）
-  const getAllSelectedFaces = () => {
-    const targetFaces = []
-
-    // 添加从上传图片选择的人像
-    selectedUploadedFaceIds.forEach(faceId => {
-      targetFaces.push({
-        type: 'uploaded',
-        imageId: uploadedImage.imageId,
-        faceId: faceId
-      })
-    })
-
-    // 添加从人像库选择的人像
-    selectedLibraryFaceIds.forEach(libraryFaceId => {
-      targetFaces.push({
-        type: 'library',
-        libraryFaceId: libraryFaceId
-      })
-    })
-
-    return targetFaces
-  }
-
-  // 处理搜索开始
-  const handleSearchStart = async (folder, threshold = 0.6) => {
-    const targetFaces = getAllSelectedFaces()
-
-    if (targetFaces.length === 0) {
-      alert('请至少选择一个人像')
-      return
-    }
-
-    try {
+      // 调用搜索 API
       const response = await axios.post('/api/search', {
         targetFaces: targetFaces,
         searchFolder: folder,
@@ -126,40 +107,27 @@ function App() {
         taskId: response.data.taskId,
         status: response.data.status
       })
-      setCurrentStep(4)
+      setCurrentStep(3)
+      console.log('搜索已启动')
     } catch (err) {
       console.error('开始搜索失败:', err)
-      alert(err.response?.data?.error?.message || '开始搜索失败')
+      handleError(err)
     }
   }
 
   // 重新开始
   const handleReset = () => {
     setCurrentStep(1)
-    setSearchMode('upload')
-    setUploadedImage(null)
-    setDetectedFaces([])
-    setSelectedUploadedFaceIds([])
-    setSelectedLibraryFaceIds([])
+    setSelectedFaces(null)
     setSearchFolder('')
     setSearchTask(null)
-  }
-
-  // 检查是否有选中的人像
-  const hasSelectedFaces = () => {
-    return selectedUploadedFaceIds.length > 0 || selectedLibraryFaceIds.length > 0
-  }
-
-  // 获取选中人像的总数
-  const getSelectedFacesCount = () => {
-    return selectedUploadedFaceIds.length + selectedLibraryFaceIds.length
   }
 
   return (
     <div className="app">
       <header className="app-header">
-        <h1>🔍 人脸识别搜索应用</h1>
-        <p>上传图片或从历史库选择人像，搜索相似照片</p>
+        <h1>🔍 忆颜图谱 - 人脸识别搜索</h1>
+        <p>统一人像选择界面 - 上传新图片或从历史库选择人像进行搜索</p>
       </header>
 
       <div className="container">
@@ -171,156 +139,46 @@ function App() {
           </div>
           <div className={`step ${currentStep >= 2 ? 'active' : ''}`}>
             <div className="step-number">2</div>
-            <div className="step-title">检测/选择</div>
+            <div className="step-title">选择文件夹</div>
           </div>
           <div className={`step ${currentStep >= 3 ? 'active' : ''}`}>
             <div className="step-number">3</div>
-            <div className="step-title">选择文件夹</div>
-          </div>
-          <div className={`step ${currentStep >= 4 ? 'active' : ''}`}>
-            <div className="step-number">4</div>
             <div className="step-title">搜索结果</div>
           </div>
         </div>
 
-        {/* 步骤 1: 模式选择和人像选择 */}
+        {/* 步骤 1: 统一人像选择界面 */}
         {currentStep === 1 && (
           <div className="card">
-            <h2>选择搜索模式</h2>
-            
-            {/* 模式选择器 */}
-            <SearchModeSelector
-              mode={searchMode}
-              onModeChange={handleModeChange}
+            <UnifiedFaceSelector
+              onStartSearch={handleStartSearch}
+              onError={handleError}
+              onSuccess={handleSuccess}
             />
-
-            {/* 上传新图片模式 */}
-            {searchMode === 'upload' && (
-              <ImageUpload onUploadSuccess={handleUploadSuccess} />
-            )}
-
-            {/* 历史人像模式 */}
-            {searchMode === 'library' && (
-              <>
-                <FaceLibrary
-                  onSelectFaces={handleLibraryFaceSelectionChange}
-                  selectedFaceIds={selectedLibraryFaceIds}
-                />
-                
-                {selectedLibraryFaceIds.length > 0 && (
-                  <div className="button-group" style={{ marginTop: '20px' }}>
-                    <button
-                      className="button button-primary"
-                      onClick={() => setCurrentStep(3)}
-                    >
-                      继续搜索 ({selectedLibraryFaceIds.length} 个人像) →
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
           </div>
         )}
 
-        {/* 步骤 2: 人脸检测和选择 */}
-        {currentStep === 2 && uploadedImage && (
-          <div className="card">
-            <h2>👤 人脸检测</h2>
-            <p className="description">
-              检测图片中的人像并选择要搜索的人像（支持多选）
-            </p>
-
-            <FaceDetection
-              imageId={uploadedImage.imageId}
-              previewUrl={uploadedImage.previewUrl}
-              onFaceSelect={(face) => {
-                // 兼容旧的单选接口，但不再使用
-              }}
-              onBack={() => setCurrentStep(1)}
-              onFacesDetected={handleFacesDetected}
-            />
-
-            {/* 使用 FaceSelector 进行多选 */}
-            {detectedFaces.length > 0 && (
-              <>
-                <div style={{ marginTop: '20px' }}>
-                  <FaceSelector
-                    imageUrl={uploadedImage.previewUrl}
-                    faces={detectedFaces}
-                    selectedFaceIds={selectedUploadedFaceIds}
-                    onSelectionChange={handleUploadedFaceSelectionChange}
-                  />
-                </div>
-
-                {/* 保存到库和继续搜索按钮 */}
-                {selectedUploadedFaceIds.length > 0 && (
-                  <div className="button-group" style={{ marginTop: '20px' }}>
-                    <button
-                      className="button"
-                      onClick={() => {
-                        const selectedFace = detectedFaces.find(
-                          f => f.faceId === selectedUploadedFaceIds[0]
-                        )
-                        if (selectedFace) {
-                          handleSaveToLibrary(selectedFace)
-                        }
-                      }}
-                      disabled={selectedUploadedFaceIds.length !== 1}
-                      title={selectedUploadedFaceIds.length !== 1 ? '请选择单个人像以保存到库' : '保存选中的人像到库以便将来使用'}
-                    >
-                      💾 保存到库
-                    </button>
-                    <button
-                      className="button button-primary"
-                      onClick={() => setCurrentStep(3)}
-                    >
-                      继续搜索 ({selectedUploadedFaceIds.length} 个人像) →
-                    </button>
-                  </div>
-                )}
-                
-                {/* 提示信息 */}
-                {selectedUploadedFaceIds.length === 0 && detectedFaces.length > 0 && (
-                  <div className="info-hint info">
-                    <p>
-                      💡 提示：点击图片上的人像标记来选择要搜索的人像
-                    </p>
-                  </div>
-                )}
-                
-                {selectedUploadedFaceIds.length > 1 && (
-                  <div className="info-hint warning">
-                    <p>
-                      💡 提示：保存到库功能仅支持单个人像。如需保存多个人像，请逐个选择并保存。
-                    </p>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-        {/* 步骤 3: 文件夹选择 */}
-        {currentStep === 3 && hasSelectedFaces() && (
+        {/* 步骤 2: 文件夹选择 */}
+        {currentStep === 2 && selectedFaces && (
           <div className="card">
             <h2>📁 选择搜索文件夹</h2>
             <p className="description">
-              已选择 {getSelectedFacesCount()} 个人像
-              {selectedUploadedFaceIds.length > 0 && ` (上传: ${selectedUploadedFaceIds.length})`}
-              {selectedLibraryFaceIds.length > 0 && ` (库: ${selectedLibraryFaceIds.length})`}
+              已选择 {selectedFaces.uploadedFaces.length + selectedFaces.libraryFaces.length} 个人像
+              {selectedFaces.uploadedFaces.length > 0 && ` (新上传: ${selectedFaces.uploadedFaces.length})`}
+              {selectedFaces.libraryFaces.length > 0 && ` (历史库: ${selectedFaces.libraryFaces.length})`}
             </p>
 
             <FolderSelection
-              imageId={uploadedImage?.imageId}
-              faceId={null} // 不再使用单个 faceId
-              onSearchStart={handleSearchStart}
-              onBack={() => setCurrentStep(searchMode === 'upload' ? 2 : 1)}
+              imageId={null}
+              faceId={null}
+              onSearchStart={handleFolderSearchStart}
+              onBack={() => setCurrentStep(1)}
             />
           </div>
         )}
 
-        {/* 步骤 4: 搜索进度和结果 */}
-        {currentStep === 4 && searchTask && (
+        {/* 步骤 3: 搜索进度和结果 */}
+        {currentStep === 3 && searchTask && (
           <>
             <SearchProgress
               taskId={searchTask.taskId}

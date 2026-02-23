@@ -10,6 +10,7 @@ from werkzeug.utils import secure_filename
 import os
 import uuid
 import threading
+import shutil
 from typing import Tuple, Dict
 
 from config import (
@@ -215,6 +216,97 @@ def preview_image(image_id: str):
     )
 
 
+@app.route('/api/preview-file', methods=['GET'])
+def preview_file():
+    """
+    Get preview of a file from local file system.
+    用于搜索结果图片预览。
+    
+    Query Parameters:
+        path: 本地文件路径
+        
+    Returns:
+        Image file
+    """
+    file_path = request.args.get('path')
+    
+    if not file_path:
+        raise ValidationError("缺少 path 参数")
+    
+    # 安全检查：确保文件存在且是图片文件
+    if not os.path.exists(file_path):
+        logger.warning(f"预览文件不存在: {file_path}")
+        raise NotFoundError(
+            f"文件不存在: {file_path}",
+            resource_type="file",
+            resource_id=file_path
+        )
+    
+    if not os.path.isfile(file_path):
+        raise ValidationError(f"路径不是文件: {file_path}")
+    
+    # 检查文件扩展名
+    allowed_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
+    file_ext = os.path.splitext(file_path)[1].lower()
+    if file_ext not in allowed_extensions:
+        raise ValidationError(f"不支持的文件类型: {file_ext}")
+    
+    # 返回文件
+    directory = os.path.dirname(file_path)
+    filename = os.path.basename(file_path)
+    
+    return send_from_directory(directory, filename)
+
+
+@app.route('/api/cleanup/<image_id>', methods=['DELETE'])
+def cleanup_temp_image(image_id: str):
+    """
+    清理临时上传的图片文件
+    
+    需求 9.6: 导航离开界面时清理所有临时上传的图片文件
+    
+    Args:
+        image_id: 要清理的图片的唯一标识符
+        
+    Returns:
+        成功消息或错误信息
+    """
+    try:
+        # 查找并删除匹配的文件
+        deleted = False
+        for filename in os.listdir(TEMP_UPLOAD_DIR):
+            if filename.startswith(image_id):
+                file_path = os.path.join(TEMP_UPLOAD_DIR, filename)
+                try:
+                    os.remove(file_path)
+                    deleted = True
+                    logger.info(f"临时文件已清理: {image_id}, 文件名: {filename}")
+                except Exception as e:
+                    logger.error(f"删除临时文件失败: {filename}, 错误: {str(e)}")
+                    raise ServiceError(
+                        f"删除文件失败: {str(e)}",
+                        service_name="file_system",
+                        original_error=e
+                    )
+        
+        if not deleted:
+            logger.warning(f"清理请求失败，未找到图片: {image_id}")
+            raise NotFoundError(
+                f"未找到图片: {image_id}",
+                resource_type="image",
+                resource_id=image_id
+            )
+        
+        return jsonify({
+            'success': True,
+            'message': '临时文件已清理'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"清理临时文件失败: {image_id}, 错误: {str(e)}", exc_info=True)
+        raise
+
+
 @app.route('/api/detect', methods=['POST'])
 def detect_faces():
     """
@@ -278,14 +370,26 @@ def detect_faces():
         
         # Return successful detection result
         # Convert Face objects to dictionaries for JSON serialization
-        faces_data = [
-            {
+        # 同时为每个人脸生成缩略图
+        faces_data = []
+        for face in detection_result.faces:
+            thumbnail_filename = f"{image_id}_{face.faceId}.jpg"
+            thumbnail_path = thumbnail_generator.generateThumbnail(
+                image_path=image_path,
+                bounding_box=face.boundingBox,
+                output_filename=thumbnail_filename
+            )
+            thumbnail_url = (
+                f"/api/library/faces/thumbnail/{thumbnail_filename}"
+                if thumbnail_path
+                else f"/api/preview/{image_id}"
+            )
+            faces_data.append({
                 "faceId": face.faceId,
                 "boundingBox": face.boundingBox,
-                "features": face.features
-            }
-            for face in detection_result.faces
-        ]
+                "features": face.features,
+                "thumbnailUrl": thumbnail_url
+            })
         
         return jsonify({
             "faces": faces_data,
@@ -1320,34 +1424,44 @@ def save_face_to_library():
             resource_id=face_id
         )
     
-    # 查找原始图片路径
-    image_path = None
-    for filename in os.listdir(TEMP_UPLOAD_DIR):
-        if filename.startswith(image_id):
-            image_path = os.path.join(TEMP_UPLOAD_DIR, filename)
-            break
-    
-    if not image_path:
-        raise NotFoundError(
-            f"未找到图片文件: {image_id}",
-            resource_type="image",
-            resource_id=image_id
-        )
-    
     try:
-        # 生成缩略图
-        thumbnail_filename = f"{uuid.uuid4()}.jpg"
-        thumbnail_path = thumbnail_generator.generateThumbnail(
-            image_path=image_path,
-            bounding_box=target_face.boundingBox,
-            output_filename=thumbnail_filename
-        )
+        # 优先复用 /api/detect 已生成的缩略图（格式：{imageId}_{faceId}.jpg）
+        detect_thumbnail_filename = f"{image_id}_{face_id}.jpg"
+        detect_thumbnail_path = os.path.join(thumbnail_generator.thumbnail_dir, detect_thumbnail_filename)
         
-        if not thumbnail_path:
-            raise ServiceError(
-                "生成缩略图失败",
-                service_name="thumbnail_generator"
+        if os.path.exists(detect_thumbnail_path):
+            # 直接复用已有缩略图，复制一份作为库缩略图（避免被清理）
+            thumbnail_filename = f"{uuid.uuid4()}.jpg"
+            thumbnail_path = os.path.join(thumbnail_generator.thumbnail_dir, thumbnail_filename)
+            shutil.copy2(detect_thumbnail_path, thumbnail_path)
+            logger.info(f"复用检测时生成的缩略图: {detect_thumbnail_filename} -> {thumbnail_filename}")
+        else:
+            # 回退：从原始图片重新生成（兼容旧流程）
+            image_path = None
+            for filename in os.listdir(TEMP_UPLOAD_DIR):
+                if filename.startswith(image_id):
+                    image_path = os.path.join(TEMP_UPLOAD_DIR, filename)
+                    break
+            
+            if not image_path:
+                raise NotFoundError(
+                    f"未找到图片文件: {image_id}",
+                    resource_type="image",
+                    resource_id=image_id
+                )
+            
+            thumbnail_filename = f"{uuid.uuid4()}.jpg"
+            thumbnail_path = thumbnail_generator.generateThumbnail(
+                image_path=image_path,
+                bounding_box=target_face.boundingBox,
+                output_filename=thumbnail_filename
             )
+            
+            if not thumbnail_path:
+                raise ServiceError(
+                    "生成缩略图失败",
+                    service_name="thumbnail_generator"
+                )
         
         # 创建 LibraryFace 对象
         library_face = LibraryFace.create(
@@ -1461,6 +1575,33 @@ def handle_empty_face_id():
         "人像ID无效",
         resource_type="library_face",
         resource_id=""
+    )
+
+
+# 获取检测时生成的临时人脸缩略图（按文件名直接访问）
+# 注意：此路由必须在 /api/library/faces/<path:face_id> 之前定义，否则会被 path 参数覆盖
+@app.route('/api/library/faces/thumbnail/<filename>', methods=['GET'])
+def get_face_thumbnail(filename: str):
+    """
+    获取人脸缩略图（检测时生成的临时缩略图和库中的缩略图均可访问）
+    
+    Args:
+        filename: 缩略图文件名（格式：{imageId}_{faceId}.jpg）
+        
+    Response:
+        - 200: 返回缩略图图片文件
+        - 404: 缩略图不存在
+    """
+    thumbnail_dir = thumbnail_generator.thumbnail_dir
+    thumbnail_path = os.path.join(thumbnail_dir, filename)
+    
+    if os.path.exists(thumbnail_path):
+        return send_from_directory(thumbnail_dir, filename)
+    
+    raise NotFoundError(
+        f"未找到缩略图: {filename}",
+        resource_type="thumbnail",
+        resource_id=filename
     )
 
 

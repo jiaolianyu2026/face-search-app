@@ -25,14 +25,17 @@ class ThumbnailGenerator:
     THUMBNAIL_QUALITY = 85  # JPEG质量
     PADDING_RATIO = 0.2  # 边距比例（相对于人像尺寸）
     
-    def __init__(self, thumbnail_dir: str = 'backend/cache/thumbnails'):
+    # 默认缩略图目录（基于模块文件位置的绝对路径，避免相对路径问题）
+    _DEFAULT_THUMBNAIL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cache', 'thumbnails')
+
+    def __init__(self, thumbnail_dir: str = None):
         """
         初始化缩略图生成器
         
         Args:
-            thumbnail_dir: 缩略图保存目录
+            thumbnail_dir: 缩略图保存目录，默认为模块同级的 cache/thumbnails 目录
         """
-        self.thumbnail_dir = thumbnail_dir
+        self.thumbnail_dir = thumbnail_dir or self._DEFAULT_THUMBNAIL_DIR
         self._ensure_thumbnail_dir()
     
     def _ensure_thumbnail_dir(self):
