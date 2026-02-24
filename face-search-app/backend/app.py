@@ -724,13 +724,32 @@ def _handle_multi_face_search(data: dict, search_folder: str, threshold: float):
                     field=f"targetFaces[{idx}]"
                 )
             
-            # 从 detection_cache 获取特征
+            # 从 detection_cache 获取特征，缓存未命中时重新检测（如后端重启导致缓存丢失）
             if image_id not in detection_cache:
-                raise NotFoundError(
-                    f"未找到图片的检测结果: {image_id}",
-                    resource_type="detection_result",
-                    resource_id=image_id
-                )
+                logger.info(f"detection_cache 未命中，尝试重新检测: {image_id}")
+                # 查找图片文件
+                image_path = None
+                for filename in os.listdir(TEMP_UPLOAD_DIR):
+                    if filename.startswith(image_id):
+                        image_path = os.path.join(TEMP_UPLOAD_DIR, filename)
+                        break
+                if not image_path:
+                    raise NotFoundError(
+                        f"未找到图片文件: {image_id}",
+                        resource_type="image",
+                        resource_id=image_id
+                    )
+                try:
+                    detection_result = face_detector.detectFaces(image_path)
+                    detection_cache[image_id] = detection_result
+                    logger.info(f"重新检测成功: {image_id}, 检测到 {len(detection_result.faces)} 个人脸")
+                except Exception as e:
+                    logger.error(f"重新检测失败: {image_id}, 错误: {str(e)}", exc_info=True)
+                    raise ServiceError(
+                        f"重新检测人脸失败: {str(e)}",
+                        service_name="face_detection",
+                        original_error=e
+                    )
             
             detection_result = detection_cache[image_id]
             target_face_obj = None
@@ -1015,6 +1034,53 @@ def cancel_search(task_id: str):
         "status": task.status,
         "message": "搜索任务已成功取消"
     }), 200
+
+
+@app.route('/api/browse-folder', methods=['POST'])
+def browse_folder():
+    """
+    唤起系统目录选择器，让用户可视化选择目录。
+    使用 tkinter 的文件对话框实现。
+    
+    Request (JSON body):
+        - title: 对话框标题（可选）
+        - initialDir: 初始目录（可选）
+        
+    Response:
+        - path: 用户选择的目录路径，取消则为 null
+    """
+    data = request.get_json() or {}
+    title = data.get('title', '选择目录')
+    initial_dir = data.get('initialDir', '')
+    
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        
+        # 创建隐藏的根窗口
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)  # 置顶显示
+        
+        # 唤起目录选择对话框
+        selected_path = filedialog.askdirectory(
+            title=title,
+            initialdir=initial_dir if initial_dir and os.path.exists(initial_dir) else '/'
+        )
+        
+        root.destroy()
+        
+        return jsonify({
+            'path': selected_path if selected_path else None
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"打开目录选择器失败: {str(e)}", exc_info=True)
+        raise ServiceError(
+            f"打开目录选择器失败: {str(e)}",
+            service_name="folder_browser",
+            original_error=e
+        )
 
 
 @app.route('/api/export', methods=['POST'])
