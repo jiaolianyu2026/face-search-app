@@ -390,13 +390,13 @@ class TestProperty13_NameSearchFiltering:
                 assert search_keyword in face_dict['name'], \
                     f"搜索结果 '{face_dict['name']}' 应该包含关键词 '{search_keyword}'"
             
-            # 验证返回的数量不超过匹配的数量
-            expected_count = len(matching_names)
-            assert len(search_results) <= expected_count, \
-                f"搜索结果数量 {len(search_results)} 不应超过匹配数量 {expected_count}"
+            # 重新计算实际包含 search_keyword 的名称数量（基础名称也可能包含关键词）
+            actual_matching_count = sum(1 for name in all_names if search_keyword in name)
+            assert len(search_results) <= actual_matching_count, \
+                f"搜索结果数量 {len(search_results)} 不应超过实际匹配数量 {actual_matching_count}"
             
             # 验证至少返回了一些结果（如果有匹配的名称）
-            if expected_count > 0:
+            if actual_matching_count > 0:
                 assert len(search_results) > 0, "应该至少返回一个匹配结果"
 
 
@@ -509,6 +509,315 @@ class TestProperty29_PrimaryKeyUniquenessConstraint:
             del temp_db
             gc.collect()
             time.sleep(0.1)  # 给 Windows 一点时间释放文件锁
+
+
+class TestProperty22_DeleteOperationDataConsistency:
+    """
+    Property 22: 删除操作的数据一致性
+    
+    对于任意历史人像，删除操作应该同时从数据库和文件系统中移除数据，确保不留下孤立的文件或记录。
+    
+    **Validates: Requirements 9.2**
+    **Feature: unified-face-selector, Property 22: 删除操作的数据一致性**
+    """
+    
+    @given(
+        name=valid_names(),
+        features=valid_feature_vectors(),
+        uuid_str=valid_uuids(),
+        timestamp=valid_iso_timestamps()
+    )
+    @settings(max_examples=100, deadline=2000)
+    def test_delete_removes_both_database_and_file(self, name, features, uuid_str, timestamp):
+        """
+        属性测试：删除操作应该同时从数据库和文件系统中移除数据
+        
+        验证：
+        1. 删除前，数据库记录存在
+        2. 删除前，缩略图文件存在
+        3. 删除后，数据库记录不存在
+        4. 删除后，缩略图文件不存在
+        5. 删除后，人像库计数减少
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = os.path.join(tmp_dir, "test.db")
+            temp_db = FaceLibraryModule(db_path=db_path)
+            
+            # 创建真实的缩略图文件
+            thumbnail_path = os.path.join(tmp_dir, f"thumb_{uuid_str}.jpg")
+            with open(thumbnail_path, 'w') as f:
+                f.write("fake thumbnail data")
+            
+            # 创建并保存人像
+            face = LibraryFace(
+                id=uuid_str,
+                name=name,
+                feature_vector=features,
+                thumbnail_path=thumbnail_path,
+                created_at=timestamp,
+                source_image_id=str(uuid.uuid4())
+            )
+            
+            save_result = temp_db.saveFace(face)
+            assert save_result is True, "保存人像应该成功"
+            
+            # 验证删除前的状态
+            # 1. 数据库记录存在
+            retrieved_before = temp_db.getFace(uuid_str)
+            assert retrieved_before is not None, "删除前，数据库记录应该存在"
+            assert retrieved_before.id == uuid_str
+            assert retrieved_before.name == name
+            
+            # 2. 缩略图文件存在
+            assert os.path.exists(thumbnail_path), "删除前，缩略图文件应该存在"
+            assert os.path.isfile(thumbnail_path), "缩略图路径应该是文件"
+            
+            # 3. 记录删除前的人像库计数
+            count_before = temp_db.count()
+            assert count_before >= 1, "删除前，人像库应该至少有一个人像"
+            
+            # 执行删除操作
+            delete_result = temp_db.deleteFace(uuid_str)
+            assert delete_result is True, "删除操作应该成功"
+            
+            # 验证删除后的状态
+            # 4. 数据库记录不存在
+            retrieved_after = temp_db.getFace(uuid_str)
+            assert retrieved_after is None, "删除后，数据库记录应该不存在"
+            
+            # 5. 缩略图文件不存在
+            assert not os.path.exists(thumbnail_path), "删除后，缩略图文件应该不存在"
+            
+            # 6. 人像库计数减少
+            count_after = temp_db.count()
+            assert count_after == count_before - 1, "删除后，人像库计数应该减少 1"
+            
+            # 7. 验证不能再次删除同一个人像
+            delete_again_result = temp_db.deleteFace(uuid_str)
+            assert delete_again_result is False, "删除不存在的人像应该返回 False"
+    
+    @given(
+        names=st.lists(valid_names(), min_size=2, max_size=5),
+        features_list=st.lists(valid_feature_vectors(), min_size=2, max_size=5)
+    )
+    @settings(max_examples=100, deadline=3000)
+    def test_delete_one_does_not_affect_others(self, names, features_list):
+        """
+        属性测试：删除一个人像不应该影响其他人像
+        
+        验证：
+        1. 保存多个人像
+        2. 删除其中一个
+        3. 其他人像的数据库记录仍然存在
+        4. 其他人像的缩略图文件仍然存在
+        5. 只有被删除的人像的数据被移除
+        """
+        num_faces = min(len(names), len(features_list))
+        assume(num_faces >= 2)
+        
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = os.path.join(tmp_dir, "test.db")
+            temp_db = FaceLibraryModule(db_path=db_path)
+            
+            # 创建并保存多个人像
+            saved_faces = []
+            thumbnail_paths = []
+            
+            for i in range(num_faces):
+                face_id = str(uuid.uuid4())
+                thumbnail_path = os.path.join(tmp_dir, f"thumb_{face_id}.jpg")
+                
+                # 创建真实的缩略图文件
+                with open(thumbnail_path, 'w') as f:
+                    f.write(f"fake thumbnail data {i}")
+                
+                face = LibraryFace(
+                    id=face_id,
+                    name=names[i],
+                    feature_vector=features_list[i],
+                    thumbnail_path=thumbnail_path,
+                    created_at=datetime.now().isoformat(),
+                    source_image_id=str(uuid.uuid4())
+                )
+                
+                save_result = temp_db.saveFace(face)
+                assert save_result is True
+                
+                saved_faces.append(face)
+                thumbnail_paths.append(thumbnail_path)
+            
+            # 验证所有人像都已保存
+            initial_count = temp_db.count()
+            assert initial_count == num_faces
+            
+            # 删除第一个人像
+            face_to_delete = saved_faces[0]
+            thumbnail_to_delete = thumbnail_paths[0]
+            
+            delete_result = temp_db.deleteFace(face_to_delete.id)
+            assert delete_result is True, "删除操作应该成功"
+            
+            # 验证被删除的人像不存在
+            deleted_face = temp_db.getFace(face_to_delete.id)
+            assert deleted_face is None, "被删除的人像不应该在数据库中"
+            assert not os.path.exists(thumbnail_to_delete), "被删除的人像的缩略图不应该存在"
+            
+            # 验证其他人像仍然存在
+            for i in range(1, num_faces):
+                other_face = saved_faces[i]
+                other_thumbnail = thumbnail_paths[i]
+                
+                # 数据库记录仍然存在
+                retrieved = temp_db.getFace(other_face.id)
+                assert retrieved is not None, f"其他人像 {i} 应该仍然在数据库中"
+                assert retrieved.id == other_face.id
+                assert retrieved.name == other_face.name
+                
+                # 缩略图文件仍然存在
+                assert os.path.exists(other_thumbnail), f"其他人像 {i} 的缩略图应该仍然存在"
+            
+            # 验证人像库计数正确
+            final_count = temp_db.count()
+            assert final_count == num_faces - 1, "人像库计数应该减少 1"
+    
+    @given(
+        name=valid_names(),
+        features=valid_feature_vectors(),
+        uuid_str=valid_uuids(),
+        timestamp=valid_iso_timestamps()
+    )
+    @settings(max_examples=100, deadline=2000)
+    def test_delete_without_thumbnail_file(self, name, features, uuid_str, timestamp):
+        """
+        属性测试：删除操作在缩略图文件不存在时仍然应该成功
+        
+        验证：
+        1. 保存人像后删除缩略图文件（模拟文件丢失）
+        2. 删除操作仍然应该成功
+        3. 数据库记录应该被移除
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = os.path.join(tmp_dir, "test.db")
+            temp_db = FaceLibraryModule(db_path=db_path)
+            
+            # 创建缩略图文件
+            thumbnail_path = os.path.join(tmp_dir, f"thumb_{uuid_str}.jpg")
+            with open(thumbnail_path, 'w') as f:
+                f.write("fake thumbnail data")
+            
+            # 创建并保存人像
+            face = LibraryFace(
+                id=uuid_str,
+                name=name,
+                feature_vector=features,
+                thumbnail_path=thumbnail_path,
+                created_at=timestamp,
+                source_image_id=str(uuid.uuid4())
+            )
+            
+            save_result = temp_db.saveFace(face)
+            assert save_result is True
+            
+            # 手动删除缩略图文件（模拟文件丢失）
+            os.remove(thumbnail_path)
+            assert not os.path.exists(thumbnail_path), "缩略图文件应该已被删除"
+            
+            # 验证数据库记录仍然存在
+            retrieved_before = temp_db.getFace(uuid_str)
+            assert retrieved_before is not None, "数据库记录应该仍然存在"
+            
+            # 执行删除操作（即使缩略图文件不存在）
+            delete_result = temp_db.deleteFace(uuid_str)
+            assert delete_result is True, "删除操作应该成功，即使缩略图文件不存在"
+            
+            # 验证数据库记录已被移除
+            retrieved_after = temp_db.getFace(uuid_str)
+            assert retrieved_after is None, "删除后，数据库记录应该不存在"
+            
+            # 验证人像库计数正确
+            count_after = temp_db.count()
+            assert count_after == 0, "人像库应该为空"
+    
+    @given(
+        names=st.lists(valid_names(), min_size=3, max_size=5),
+        features_list=st.lists(valid_feature_vectors(), min_size=3, max_size=5)
+    )
+    @settings(max_examples=100, deadline=3000)
+    def test_delete_all_leaves_empty_database(self, names, features_list):
+        """
+        属性测试：删除所有人像后，数据库应该为空
+        
+        验证：
+        1. 保存多个人像
+        2. 逐个删除所有人像
+        3. 所有数据库记录都被移除
+        4. 所有缩略图文件都被移除
+        5. 人像库计数为 0
+        """
+        num_faces = min(len(names), len(features_list))
+        assume(num_faces >= 3)
+        
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = os.path.join(tmp_dir, "test.db")
+            temp_db = FaceLibraryModule(db_path=db_path)
+            
+            # 创建并保存多个人像
+            saved_faces = []
+            thumbnail_paths = []
+            
+            for i in range(num_faces):
+                face_id = str(uuid.uuid4())
+                thumbnail_path = os.path.join(tmp_dir, f"thumb_{face_id}.jpg")
+                
+                with open(thumbnail_path, 'w') as f:
+                    f.write(f"fake thumbnail data {i}")
+                
+                face = LibraryFace(
+                    id=face_id,
+                    name=names[i],
+                    feature_vector=features_list[i],
+                    thumbnail_path=thumbnail_path,
+                    created_at=datetime.now().isoformat(),
+                    source_image_id=str(uuid.uuid4())
+                )
+                
+                save_result = temp_db.saveFace(face)
+                assert save_result is True
+                
+                saved_faces.append(face)
+                thumbnail_paths.append(thumbnail_path)
+            
+            # 验证所有人像都已保存
+            initial_count = temp_db.count()
+            assert initial_count == num_faces
+            
+            # 逐个删除所有人像
+            for i, face in enumerate(saved_faces):
+                delete_result = temp_db.deleteFace(face.id)
+                assert delete_result is True, f"删除人像 {i} 应该成功"
+                
+                # 验证当前人像已被删除
+                retrieved = temp_db.getFace(face.id)
+                assert retrieved is None, f"人像 {i} 应该已从数据库中移除"
+                
+                # 验证缩略图文件已被删除
+                assert not os.path.exists(thumbnail_paths[i]), f"人像 {i} 的缩略图应该已被删除"
+                
+                # 验证人像库计数正确
+                expected_count = num_faces - (i + 1)
+                current_count = temp_db.count()
+                assert current_count == expected_count, f"删除 {i+1} 个人像后，计数应该为 {expected_count}"
+            
+            # 验证最终状态
+            final_count = temp_db.count()
+            assert final_count == 0, "删除所有人像后，人像库应该为空"
+            
+            all_faces = temp_db.getAllFaces()
+            assert len(all_faces) == 0, "getAllFaces 应该返回空列表"
+            
+            # 验证所有缩略图文件都已被删除
+            for thumbnail_path in thumbnail_paths:
+                assert not os.path.exists(thumbnail_path), "所有缩略图文件都应该已被删除"
 
 
 if __name__ == '__main__':

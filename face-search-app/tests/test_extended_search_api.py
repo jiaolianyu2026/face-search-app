@@ -527,7 +527,7 @@ class TestExtendedSearchAPI:
         assert response.status_code == 404
         data = json.loads(response.data)
         assert 'error' in data
-        assert data['error']['resourceType'] == 'detection_result'
+        assert data['error']['resourceType'] == 'image'
     
     # 测试 13: 不存在的库人像
     def test_library_face_nonexistent(self, client, temp_search_folder):

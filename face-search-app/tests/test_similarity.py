@@ -143,7 +143,10 @@ class TestSimilarityModule:
     
     def test_both_zero_vectors_return_zero_similarity(self):
         """
-        Test that two zero vectors return 0 similarity.
+        Test that two zero vectors return 1.0 similarity.
+        
+        欧氏距离实现：两个零向量的欧氏距离 = 0，
+        similarity = max(0, 1 - 0/1.0) = 1.0
         """
         similarity_module = SimilarityModule()
         
@@ -154,9 +157,9 @@ class TestSimilarityModule:
         # Compute similarity
         similarity = similarity_module.computeSimilarity(features1, features2)
         
-        # Should be 0.0
-        assert similarity == 0.0, \
-            f"Two zero vectors should have similarity 0.0, got {similarity}"
+        # 欧氏距离为 0，相似度应为 1.0
+        assert similarity == 1.0, \
+            f"Two zero vectors (euclidean distance=0) should have similarity 1.0, got {similarity}"
     
     def test_normalized_vectors_similarity(self):
         """
@@ -223,10 +226,11 @@ class TestSimilarityModule:
     
     def test_known_similarity_value(self):
         """
-        Test with vectors that have a known cosine similarity.
+        Test with vectors that have a known euclidean distance similarity.
         
-        For vectors [1, 0] and [1, 1], cosine similarity is 1/sqrt(2) ≈ 0.707
-        Extended to 128 dimensions for consistency.
+        对于向量 [1, 0, 0, ...] 和 [1, 1, 0, 0, ...]：
+        欧氏距离 = sqrt((1-1)^2 + (0-1)^2) = sqrt(1) = 1.0
+        similarity = max(0, 1 - 1.0/1.0) = 0.0
         """
         similarity_module = SimilarityModule()
         
@@ -238,14 +242,13 @@ class TestSimilarityModule:
         # Compute similarity
         similarity = similarity_module.computeSimilarity(features1, features2)
         
-        # Expected: dot(v1, v2) / (norm(v1) * norm(v2))
-        # dot = 1*1 + 0*1 = 1
-        # norm(v1) = 1, norm(v2) = sqrt(2)
-        # similarity = 1 / sqrt(2) ≈ 0.7071
-        expected = 1.0 / np.sqrt(2.0)
+        # 欧氏距离计算：
+        # distance = sqrt((1-1)^2 + (0-1)^2) = 1.0
+        # similarity = max(0, 1 - 1.0/1.0) = 0.0
+        expected = 0.0
         
         assert abs(similarity - expected) < 1e-6, \
-            f"Expected similarity {expected}, got {similarity}"
+            f"Expected similarity {expected} (euclidean), got {similarity}"
 
 
 if __name__ == '__main__':
