@@ -10,6 +10,7 @@ import os
 import sys
 import tempfile
 import shutil
+import time
 import json
 from PIL import Image
 import numpy as np
@@ -43,8 +44,16 @@ class TestExtendedSearchAPI:
         
         yield temp_dir
         
-        # 清理
-        shutil.rmtree(temp_dir)
+        # 清理（Windows 上文件可能被锁定，加重试逻辑）
+        for attempt in range(3):
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=False)
+                break
+            except PermissionError:
+                if attempt < 2:
+                    time.sleep(0.5)
+                else:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
     
     @pytest.fixture
     def uploaded_image_with_face(self, client):
